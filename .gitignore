@@ -24,3 +24,6 @@ TestResults.xml
 
 #Python
 *.pyc
+/saved/*
+/temp/*
+/MixTokenizer.egg-info/*

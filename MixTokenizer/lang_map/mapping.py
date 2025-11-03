@@ -1,6 +1,8 @@
 import random
 import json
 from typing import List, Union, Tuple, Dict
+from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 
 class PrivateUnicodeMapper:
     """
@@ -94,33 +96,59 @@ class PrivateUnicodeMapper:
     def unmap_string(self, text: str) -> str:
         """Decode a private area string back to original characters."""
         return "".join(chr(self.reverse_mapping.get(ord(c), ord(c))) for c in text)
+    
+    def _map_text_line(self, line: str) -> str:
+        """Map a single JSONL line's 'text' to private area chars."""
+        data = json.loads(line)
+        if "text" in data:
+            data["text"] = self.map_string(data["text"])
+        return json.dumps(data, ensure_ascii=False)
+
+    def _unmap_text_line(self, line: str) -> str:
+        """Unmap a single JSONL line's 'text' from private area chars."""
+        data = json.loads(line)
+        if "text" in data:
+            data["text"] = self.unmap_string(data["text"])
+        return json.dumps(data, ensure_ascii=False)
+
+    def map_docs_file(self, input_path: str, output_path: str, num_workers: int = 4):
+        """Map JSONL file to private unicode using multiple processes."""
+        with open(input_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        mapper_func = partial(PrivateUnicodeMapper._map_text_line, self)
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            mapped_lines = list(executor.map(mapper_func, lines))
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            for line in mapped_lines:
+                f.write(line + "\n")
+
+    def unmap_docs_file(self, input_path: str, output_path: str, num_workers: int = 4):
+        """Unmap JSONL file from private unicode using multiple processes."""
+        with open(input_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        unmapper_func = partial(PrivateUnicodeMapper._unmap_text_line, self)
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            unmapped_lines = list(executor.map(unmapper_func, lines))
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            for line in unmapped_lines:
+                f.write(line + "\n")
+        
 
 
 if __name__ == "__main__":
-    li = [
-        '3002', 'FF1F', 'FF01', '3010', '3011', 'FF0C', '3001', 'FF1B',
-        'FF1A', '300C', '300D', '300E', '300F', '2019', '201C', '201D',
-        '2018', 'FF08', 'FF09', '3014', '3015', '2026', '2013', 'FF0E',
-        '2014', '300A', '300B', '3008', '3009'
-    ]
-    punct_codes = [int(x, 16) for x in li]
-
-    MAPPER = PrivateUnicodeMapper(
-        old_areas_list=[(0x4E00, 0x9FFF), *punct_codes] # can add other zh ranges
-    )
-    MAPPER.get_vocab()
-    MAPPER.save_mapping("mapping.json")
 
     zh = "就是因为有这些人认同我……所以我才能够……无论是有妖狐在我的体内，或是被村子里的人们以冷漠的眼光看待，我都不觉得难过了……因为我……已经不是孤单一人了！"
-    s = MAPPER.map_string(zh)
-    print(s)
 
-    zh_back = MAPPER.unmap_string(s)
-    print(zh_back, zh_back==zh)
+    MAPPER = PrivateUnicodeMapper.from_mapping_dict(mapping_file="mapping.json")
+    ns = MAPPER.map_string(zh)
+    print(ns)
 
-    NEW_MAPPER = PrivateUnicodeMapper.from_mapping_dict(mapping_file="mapping.json")
-    ns = NEW_MAPPER.map_string(zh)
-    print(ns, s == ns)
-
-    zh_back_n = NEW_MAPPER.unmap_string(ns)
+    zh_back_n = MAPPER.unmap_string(ns)
     print(zh_back_n, zh_back_n == zh)
+
+    MAPPER.map_docs_file(input_path="text.jsonl", output_path="text_new.jsonl")
+    MAPPER.unmap_docs_file(input_path="text_new.jsonl", output_path="text_new_back.jsonl")
