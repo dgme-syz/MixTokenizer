@@ -3,12 +3,10 @@
 import os
 import json
 from typing import List, Union
-from collections import Counter
 
-import torch
 from transformers import AutoTokenizer
 
-from MixTokenizer import sample_integer_points, NewLangTokenizer
+from MixTokenizer import NewLangTokenizer
 
 
 # ─────────── Model Directory Structure ───────────
@@ -17,12 +15,10 @@ from MixTokenizer import sample_integer_points, NewLangTokenizer
 # ├── tokenizer_config.json      # Hugging Face tokenizer configuration
 # ├── model.safetensors         # Model weights
 # ├── ...                       # Other model-related files
-# └── MixTokenizer/                     # Extra assets for MixTokenizer
+# └── mix/                     # Extra assets for MixTokenizer
 #     ├── extra_config.json     # Mapping info, level, frequency info
 #     ├── tokenizer.py          # Custom tokenizer wrapper
-#     ├── utils.py              # Utility functions (e.g., sample_integer_points, NewLangTokenizer)
 #     ├── new_tokenizer/        # Your special language tokenizer (e.g., vocab.json)
-#     └── lang_map/             # Mapping: new language chars → old language chars
 #
 # ✨ Note: Keep the 'extra' folder intact to enable all MixTokenizer features!
 
@@ -39,7 +35,8 @@ def get_mix_tokenizer(tokenizer_cls):
             instance = super().from_pretrained(pretrained_model_name_or_path, **kwargs)
             instance.pretrained_model_name_or_path = pretrained_model_name_or_path
             # Load extra_config.json
-            script_dir = os.path.join(pretrained_model_name_or_path, "MixTokenizer")
+            dir_name = "mix"
+            script_dir = os.path.join(pretrained_model_name_or_path, dir_name)
             json_path = os.path.join(script_dir, "extra_config.json")
             with open(json_path, "r", encoding="utf-8") as f:
                 extra_config = json.load(f)
@@ -57,7 +54,6 @@ def get_mix_tokenizer(tokenizer_cls):
 
             instance.new_lang_tokenizer = new_lang_tokenizer
             level = extra_config.get("level", None)
-            frequency_id_files = extra_config.get("frequency_id_files", None)
 
             if extra_config.get("mapping") and extra_config.get("used_ids"):
                 print(f"Mapping file and used ids are loaded, level ignored: {level}")
@@ -66,72 +62,12 @@ def get_mix_tokenizer(tokenizer_cls):
                 instance.zero_ids = extra_config["used_ids"]
                 instance.zero_dict = {zid: idx for idx, zid in enumerate(instance.zero_ids)}
                 instance.reverse_mapping = {tuple(point): idx for idx, point in enumerate(instance.mapping)}
-            elif frequency_id_files:
-                print(f"Mapping file and used ids do not all exist, using frequency_id_files, level={level}")
-                instance._prepare_mapping(frequency_id_files, level)
-                instance.save_to_json()
             else:
                 raise ValueError(
                     "Ensure mapping and used_ids exist in config, or frequency_id_files and level exist in config."
                 )
             return instance
         
-        def save_to_json(self):
-            script_dir = os.path.join(self.pretrained_model_name_or_path, "MixTokenizer")
-            json_path = os.path.join(script_dir, "extra_config.json")
-            cfg = {}
-            if os.path.exists(json_path):
-                with open(json_path, "r", encoding="utf-8") as f:
-                    cfg = json.load(f)
-            if not cfg.get("mapping") or not cfg.get("used_ids"):
-                cfg["mapping"] = self.mapping
-                cfg["used_ids"] = self.zero_ids
-            with open(json_path, "w", encoding="utf-8") as f:
-                json.dump(cfg, f, indent=2)
-                
-        def _prepare_mapping(self, frequency_id_files: List[str], level: int | str) -> None:
-            """
-            Build mapping between new language tokens and low-frequency Qwen tokens.
-            """
-            if level == "mixed":
-                raise NotImplementedError("Decoding in 'mixed' level mode is not supported.")
-
-            # Aggregate frequency data
-            frequency_counter = Counter()
-            for file in frequency_id_files:
-                freq_data = torch.load(file)
-                frequency_counter.update(freq_data)
-
-            # Ensure all base tokens are represented
-            for i in range(len(self)):
-                frequency_counter.update({i: 0})
-
-            # Sort tokens by ascending frequency
-            frequency_list = sorted(frequency_counter.items(), key=lambda x: x[1])
-
-            # Collect zero-frequency token IDs
-            zero_ids = [tid for tid, freq in frequency_list if freq == 0]
-            if not zero_ids:
-                raise ValueError("No zero-frequency tokens available for mapping.")
-
-            print(f"\033[91m[WORK]\033[0mFound {len(zero_ids)} zero-frequency tokens for mapping.")
-            print(f"\033[91m[WORK]\033[0mNew language vocab size: {len(self.new_lang_tokenizer)}, use level={level}.")
-            # Check available mapping capacity
-            max_lim = int(pow(len(zero_ids), level))
-            if max_lim < len(self.new_lang_tokenizer):
-                raise ValueError(f"Increase 'level', max_lim = {max_lim}")
-
-            # Randomly assign integer grid points for mapping
-            points = sample_integer_points(L=len(zero_ids), K=level, N=len(self.new_lang_tokenizer))
-
-            # Build mapping: new_lang_token_id → list[base_token_ids]
-            self.mapping: List[list[int]] = [
-                [zero_ids[x] for x in point] for point in points
-            ]
-            self.zero_ids = zero_ids
-            self.zero_dict = {zid: idx for idx, zid in enumerate(zero_ids)}
-            self.reverse_mapping = {point: idx for idx, point in enumerate(map(tuple, self.mapping))}
-
         def _same_char_type(self, ch1: str, ch2: str) -> bool:
             return self.new_lang_tokenizer.is_new_char(ch1) == self.new_lang_tokenizer.is_new_char(ch2)
 
