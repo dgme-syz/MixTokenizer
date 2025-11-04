@@ -1,5 +1,6 @@
 # mapping
 ## zh & punctuation
+## training_params: old_areas_list, seed 
 mapping:
   old_areas_list:
   - [0x4E00, 0x9FFF]  # Unicode 范围
@@ -36,12 +37,14 @@ mapping:
   mapping_file: MixTokenizer/lang_map/mapping.json # if not exist, will be trained and saved here
 
 ## tokenizer
+## training_params: path
 new_lang_tokenizer:
   type: default
   path: mix/new_tokenizer
 
 ## mix training
 model_name_or_path: C:/Users/17299/models/hub/models--Qwen--Qwen2.5-0.5B/snapshots/060db6499f32faf8b98477b0a26969ef7d8b9987
+## training_params: doc_path orcounter_path, level, seed
 mix_trained:
   doc_path: null
   counter_path: [MixTokenizer/en.bin, MixTokenizer/zh.bin]
