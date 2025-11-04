@@ -59,12 +59,8 @@ class PrivateUnicodeMapper:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(mapping_dict, f, ensure_ascii=False, indent=2)
 
-<<<<<<< HEAD
-    def get_vocab(self) -> Dict[str, int]:
+    def get_vocab(self, save: bool = False) -> Dict[str, int]:
         """Build a vocabulary file for the mapped private characters."""
-=======
-    def get_vocab(self, save=False) -> Dict[str, int]:
->>>>>>> c84bff3c0d6b038644ca6c3d92879b4e0996cc79
         private_chars = list(self.reverse_mapping.keys())
         vocab = {chr(c): i for i, c in enumerate(private_chars)}
 
