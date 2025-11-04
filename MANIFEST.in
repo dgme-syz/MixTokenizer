@@ -1,3 +1,0 @@
-include MixTokenizer/extra_config.json
-recursive-include MixTokenizer/new_tokenizer *
-recursive-include MixTokenizer/lang_map *

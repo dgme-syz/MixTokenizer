@@ -147,7 +147,7 @@ def main():
         tokenizer_code = f.read()
 
     pattern = (
-        r"# Get parent tokenizer's type[\s\S]*?globals\(\)\[\"MixTokenizer\"\]\s*=\s*get_mix_tokenizer\(tokenizer_cls=tokenizer_cls\)"
+        r"# Get parent tokenizer's type[\s\S]*?globals\(\)\[\"MixTokenizer\"\]\s*=\s*get_mix_tokenizer\(tokenizer_cls=tokenizer_cls, dir_name=dir_name\)"
     )
     replacement = (
         f"# Get parent tokenizer's type\n"

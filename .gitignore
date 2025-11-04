@@ -22,8 +22,26 @@ rad.json
 TestResults.xml
 
 
-#Python
+# custom
+saved/*
+temp/*
+MixTokenizer.egg-info/*
+.nfs*
+*.html
+
+# Byte-compiled / Cython generated
+__pycache__/
 *.pyc
-/saved/*
-/temp/*
-/MixTokenizer.egg-info/*
+*.pyo
+
+# Cython generated C files
+*.c
+
+# Python extension modules
+*.so
+*.pyd
+
+# Build folders
+build/
+dist/
+*.egg-info/
