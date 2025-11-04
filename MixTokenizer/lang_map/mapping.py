@@ -59,19 +59,25 @@ class PrivateUnicodeMapper:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(mapping_dict, f, ensure_ascii=False, indent=2)
 
+<<<<<<< HEAD
     def get_vocab(self) -> Dict[str, int]:
         """Build a vocabulary file for the mapped private characters."""
+=======
+    def get_vocab(self, save=False) -> Dict[str, int]:
+>>>>>>> c84bff3c0d6b038644ca6c3d92879b4e0996cc79
         private_chars = list(self.reverse_mapping.keys())
         vocab = {chr(c): i for i, c in enumerate(private_chars)}
 
-        with open("vocab.json", "w", encoding="utf-8") as f:
-            json.dump(vocab, f, ensure_ascii=False, indent=2)
+        if save:
+            with open("vocab.json", "w", encoding="utf-8") as f:
+                json.dump(vocab, f, ensure_ascii=False, indent=2)
+        return vocab
 
     def _collect_codes(self, old_areas_list):
         """Collect all Unicode code points from ranges or single points."""
         codes = []
         for area in old_areas_list:
-            if isinstance(area, tuple):
+            if isinstance(area, list):
                 start, end = area
                 codes.extend(range(start, end + 1))
             elif isinstance(area, int):

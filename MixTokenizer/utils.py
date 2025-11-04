@@ -1,4 +1,5 @@
 import json
+import os
 from typing import List
 
 import numpy as np
@@ -66,3 +67,11 @@ class NewLangTokenizer:
     def decode(self, token_ids: List[int]) -> str:
         # Decode and remove spaces introduced by WordPiece
         return self.tokenizer.decode(token_ids, skip_special_tokens=True).replace(" ", "")
+    
+    def save_pretrained(self, save_directory: str) -> None:
+        vocab = self.tokenizer.get_vocab()
+        # sort by value
+        vocab = dict(sorted(vocab.items(), key=lambda item: item[1]))
+        vocab_path = os.path.join(save_directory, "vocab.json")
+        with open(vocab_path, "w", encoding="utf-8") as f:
+            json.dump(vocab, f, ensure_ascii=False, indent=2)
