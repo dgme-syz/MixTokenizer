@@ -1,5 +1,6 @@
 # mapping
 ## zh & punctuation
+## training_params: old_areas_list, seed 
 mapping:
   old_areas_list:
   - [0x4E00, 0x9FFF]  # Unicode 范围
@@ -36,6 +37,7 @@ mapping:
   mapping_file: MixTokenizer/lang_map/mapping.json # if not exist, will be trained and saved here
 
 ## tokenizer
+## training_params: path
 new_lang_tokenizer:
   type: default
   path: mix/new_tokenizer
