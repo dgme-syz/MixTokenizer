@@ -3,7 +3,7 @@
 ## training_params: old_areas_list, seed 
 mapping:
   old_areas_list:
-  - [0x4E00, 0x9FFF]  # Unicode 范围
+  - [0x4E00, 0x9FFF]  # Unicode zh
   - 0x3002
   - 0xFF1F
   - 0xFF01
