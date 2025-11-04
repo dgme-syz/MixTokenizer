@@ -41,7 +41,7 @@ new_lang_tokenizer:
   path: mix/new_tokenizer
 
 ## mix training
-model_name_or_path: C:/Users/17299/models/hub/models--Qwen--Qwen2.5-0.5B/snapshots/060db6499f32faf8b98477b0a26969ef7d8b9987
+model_name_or_path: /home/nfs06/shenyz/models/Qwen2.5-0.5B
 mix_trained:
   doc_path: null
   counter_path: [MixTokenizer/en.bin, MixTokenizer/zh.bin]
