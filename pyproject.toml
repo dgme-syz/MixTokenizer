@@ -1,22 +1,42 @@
 [project]
 name = "MixTokenizer"
 version = "0.1.0"
+description = "Hybrid tokenizer supporting multi-language and private-use mapping"
 readme = "README.md"
-requires-python = ">=3.10"
-license = { text = "MIT" }
+requires-python = ">=3.8"
+license = { text = "Apache-2.0" }
 authors = [
     { name = "ShenYunzhi", email = "shenyunzhi@smail.nju.edu.cn" }
 ]
 urls = { "Homepage" = "https://github.com/dgme-syz/MixTokenizer" }
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Cython",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent"
 ]
 
+dependencies = [
+    "transformers>=4.57.1",
+    "tokenizers",
+    "numpy",
+    "scipy",
+    "cython",
+]
+
 [build-system]
-requires = ["setuptools>=61.0", "wheel", "Cython", "numpy"]
+requires = [
+    "setuptools>=61.0",
+    "wheel",
+    "Cython",
+    "numpy",
+]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
+include = ["MixTokenizer", "MixTokenizer.*"]
+
