@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Hybrid tokenizer supporting multi-language and private-use mapping"
 readme = "README.md"
 requires-python = ">=3.8"
-license = { text = "Apache-2.0" }
+license = { text = "MIT" }
 authors = [
     { name = "ShenYunzhi", email = "shenyunzhi@smail.nju.edu.cn" }
 ]
@@ -12,7 +12,7 @@ urls = { "Homepage" = "https://github.com/dgme-syz/MixTokenizer" }
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Cython",
-    "License :: OSI Approved :: Apache Software License",
+    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent"
 ]
 
@@ -39,4 +39,3 @@ include-package-data = true
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["MixTokenizer", "MixTokenizer.*"]
-
