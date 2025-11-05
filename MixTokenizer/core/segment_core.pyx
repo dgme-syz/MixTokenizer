@@ -5,7 +5,7 @@
 import numpy as np
 cimport numpy as np
 from cpython.unicode cimport PyUnicode_READ_CHAR
-from cython.parallel import prange, parallel
+from cython.parallel import prange
 
 ctypedef np.uint8_t bool_t
 ctypedef np.int64_t int64_t
@@ -45,21 +45,3 @@ def find_change_points(np.ndarray[bool_t, ndim=1] is_new):
 
     return result
 
-
-# --------------------------
-# Parallel unicode char check (thread-safe)
-# --------------------------
-def is_new_char_array(str text):
-    cdef Py_ssize_t n = len(text)
-    cdef np.ndarray[bool_t, ndim=1] mask = np.empty(n, dtype=np.uint8)
-    cdef Py_ssize_t i
-    cdef int code
-
-    for i in range(n):
-        code = PyUnicode_READ_CHAR(text, i)
-        mask[i] = (
-            (0xE000 <= code <= 0xF8FF)
-            or (0xF0000 <= code <= 0xFFFFD)
-            or (0x100000 <= code <= 0x10FFFD)
-        )
-    return mask

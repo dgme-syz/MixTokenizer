@@ -1,6 +1,6 @@
 import json
 import os
-from typing import List, Union
+from typing import List, Union, Dict
 
 import numpy as np
 from tokenizers import Tokenizer
@@ -8,8 +8,10 @@ from tokenizers.models import WordLevel
 from tokenizers.pre_tokenizers import Split
 from transformers import AutoTokenizer
 from scipy.stats import qmc
+from transformers.tokenization_utils import Trie
 
-from MixTokenizer.core.segment_core import is_new_char_array, find_change_points
+from MixTokenizer.core.segment_core import find_change_points
+from MixTokenizer.core.judge_core import is_new_char_array
 
 def sample_integer_points(L: int, K: int, N: int, seed: int = 42) -> np.ndarray:
     """
@@ -47,11 +49,16 @@ class NewLangTokenizer:
                 vocab = json.load(f)
         else:
             vocab = vocab_file
-        for mark in ["[CLS]", "[SEP]", "[PAD]", "[MASK]", "[UNK]"]:
+        self.unk_token = "[UNK]"
+        self.tokens_trie = Trie()
+        self.all_special_tokens = []
+        for mark in [self.unk_token]:
+            self.tokens_trie.add(mark)
+            self.all_special_tokens.append(mark)
             if mark not in vocab:
                 vocab[mark] = len(vocab)
-            
-        self.tokenizer = Tokenizer(WordLevel(vocab, unk_token="[UNK]"))
+                
+        self.tokenizer = Tokenizer(WordLevel(vocab, unk_token=self.unk_token))
         self.tokenizer.pre_tokenizer = Split(pattern="", behavior="isolated") #important
 
     def __len__(self) -> int:
@@ -60,28 +67,43 @@ class NewLangTokenizer:
     def tokenize(self, text: str) -> List[str]:
         x = self.tokenizer.encode(text, add_special_tokens=False).tokens
         return x
+
+    def _convert_one_token_to_id(self, token: str) -> Union[int, List[int]]:
+        x = self.tokenizer.token_to_id(token)
+        return x 
     
     def is_new_char(self, ch: str) -> bool:
         # Only treat single-character entries in vocab as new characters
         # For faster tokenize, just ensure in private area
-        if len(ch) != 1:
-            raise ValueError(f"Input must be a single character. {ch} has length {len(ch)}.")
+
         status = (
-            0xE000 <= ord(ch) <= 0xF8FF
-            or 0xF0000 <= ord(ch) <= 0xFFFFD
-            or 0x100000 <= ord(ch) <= 0x10FFFD
-        ) and len(ch) == 1
+            ch in self.all_special_tokens or (
+                len(ch) == 1 and ( 
+                    0xE000 <= ord(ch) <= 0xF8FF
+                    or 0xF0000 <= ord(ch) <= 0xFFFFD
+                    or 0x100000 <= ord(ch) <= 0x10FFFD
+                )
+            ) 
+        )
 
         return status
     
     def is_new_char_array(self, text: str) -> np.ndarray:
+        if text in self.all_special_tokens:
+            return np.ones(len(text), dtype=bool)
         return is_new_char_array(text)
 
+    def split_by_special_tokens(self, text: str) -> List[str]:
+        return self.tokens_trie.split(text)
 
     def decode(self, token_ids: List[int]) -> str:
         # Decode and remove spaces introduced by WordPiece
         return self.tokenizer.decode(token_ids, skip_special_tokens=True).replace(" ", "")
     
+    @property
+    def get_vocab(self) -> Dict[str, int]:
+        return self.tokenizer.get_vocab()
+
     def save_pretrained(self, save_directory: str) -> None:
         vocab = self.tokenizer.get_vocab()
         # sort by value
@@ -89,7 +111,7 @@ class NewLangTokenizer:
         vocab_path = os.path.join(save_directory, "vocab.json")
         with open(vocab_path, "w", encoding="utf-8") as f:
             json.dump(vocab, f, ensure_ascii=False, indent=2)
-
+    
 
 
 class MixTokenizerBase:
@@ -129,6 +151,11 @@ class MixTokenizerBase:
             instance.level = len(instance.mapping[0])
             instance.zero_ids = extra_config["used_ids"]
             # ensure zero_ids are not in special_ids
+            if not hasattr(instance, "all_special_ids"):
+                instance.all_special_ids = [
+                    instance.convert_tokens_to_ids(t) for t in instance.all_special_tokens
+                ]
+                print(f"We collect all_special_ids = {instance.all_special_ids}")
             assert not set(instance.zero_ids).intersection(set(instance.all_special_ids)), \
                 "zero_ids should not overlap with special token ids."
             vocab_len = len(instance) + 10 # for safety
@@ -158,30 +185,35 @@ class MixTokenizerBase:
         1. Group characters by type (new_lang vs Qwen).
         2. Tokenize each segment using the appropriate tokenizer.
         """
-        is_new = self.new_lang_tokenizer.is_new_char_array(text)
-
-        # transfer [0,0,1,1,0] → [0,2,4,5]
-        # True: new_lang seg, False: base_lang seg
-
+        # First chunk
+        # print(f"tokenize text={text}")
         tokens = []
         append = tokens.extend  
-        segments = find_change_points(is_new)
-
-        for flag, start, end in segments:
-            seg = text[start:end]
-            if flag:
-                append(self.new_lang_tokenizer.tokenize(seg))
+        for chunk_text in self.new_lang_tokenizer.split_by_special_tokens(text):
+            if chunk_text in self.new_lang_tokenizer.all_special_tokens:
+                append(self.new_lang_tokenizer.tokenize(chunk_text))
             else:
-                append(super().tokenize(seg, **kwargs))
+                is_new = self.new_lang_tokenizer.is_new_char_array(chunk_text)
 
+                # transfer [0,0,1,1,0] → [0,2,4,5]
+                # True: new_lang seg, False: base_lang seg
+                segments = find_change_points(is_new)
+
+                for flag, start, end in segments:
+                    seg = chunk_text[start:end]
+                    if flag:
+                        append(self.new_lang_tokenizer.tokenize(seg))
+                    else:
+                        append(super().tokenize(seg, **kwargs))
+        # print(f"tokenized tokens={tokens}")
         return tokens
 
     def _convert_one_token_to_id(self, token: str) -> Union[int, List[int]]:
         """
         Convert a token to one or more IDs depending on its type.
         """
-        if len(token) == 1 and self.new_lang_tokenizer.is_new_char(token):
-            token_id = self.new_lang_tokenizer.tokenizer.token_to_id(token)
+        if self.new_lang_tokenizer.is_new_char(token):
+            token_id = self.new_lang_tokenizer._convert_one_token_to_id(token)
             # print("***||")
             # print(token_id, self.mapping[token_id])
             return self.mapping[token_id]
@@ -191,6 +223,7 @@ class MixTokenizerBase:
     def convert_tokens_to_ids(self, tokens: Union[str, List[str]]) -> Union[int, List[int]]:
         if tokens is None:
             return None
+        # print(f"tokens = {tokens}")
         if isinstance(tokens, str):
             return self._convert_one_token_to_id(tokens)
 

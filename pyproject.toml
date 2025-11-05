@@ -30,6 +30,7 @@ requires = [
     "wheel",
     "Cython",
     "numpy",
+    "pybind11",
 ]
 build-backend = "setuptools.build_meta"
 

@@ -65,13 +65,8 @@ def main():
     if tokenizer_type == "huggingface":
         new_lang_tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
     elif tokenizer_type == "default":
-        vocab_path = os.path.join(tokenizer_path, "vocab.json")
-        if os.path.exists(vocab_path):
-            print(f"📂 Loading existing vocab from {vocab_path}")
-            new_lang_tokenizer = NewLangTokenizer(vocab_path)
-        else:
-            vocab = mapper.get_vocab()
-            new_lang_tokenizer = NewLangTokenizer(vocab)
+        vocab = mapper.get_vocab()
+        new_lang_tokenizer = NewLangTokenizer(vocab)
     else:
         raise ValueError(f"Unsupported new language tokenizer type: {tokenizer_type}")
     # copy new_lang_tokenizer files to output_dir

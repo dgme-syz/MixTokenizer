@@ -1,41 +1,12 @@
-import json
 import os
 import time
-from typing import List
 import pytest
-from tokenizers import Tokenizer
-from tokenizers.models import WordLevel
-from tokenizers.pre_tokenizers import Split
+import random
+
 from transformers import AutoTokenizer
 from datasets import Dataset
 import pickle
 import tempfile
-
-class NewLangTokenizer:
-    """Wrapper around WordLevel tokenizer for a custom language or symbol set."""
-
-    def __init__(self, vocab_file: str | dict, **kwargs) -> None:
-        if isinstance(vocab_file, str):
-            with open(vocab_file, "r", encoding="utf-8") as f:
-                vocab = json.load(f)
-        else:
-            vocab = vocab_file
-
-        for mark in ["[CLS]", "[SEP]", "[PAD]", "[MASK]", "[UNK]"]:
-            if mark not in vocab:
-                vocab[mark] = len(vocab)
-
-        self.tokenizer = Tokenizer(WordLevel(vocab, unk_token="[UNK]"))
-        self.tokenizer.pre_tokenizer = Split(pattern="", behavior="isolated")
-
-    def __len__(self) -> int:
-        return self.tokenizer.get_vocab_size()
-
-    def tokenize(self, text: str) -> List[str]:
-        return self.tokenizer.encode(text, add_special_tokens=False).tokens
-
-    def decode(self, token_ids: List[int]) -> str:
-        return self.tokenizer.decode(token_ids, skip_special_tokens=True).replace(" ", "")
 
 
 @pytest.fixture(scope="module")
@@ -55,7 +26,7 @@ def tokenizers(user_model_paths):
 
 @pytest.fixture
 def sample_text():
-    return ("􅊫􀞡󳉅󻶉􈽃􎾻󾓚􈯹" * 1000)
+    return ("􅊫􀞡󳉅󻶉􈽃􎾻󾓚􈯹" * 100000)
 
 
 def test_tokenizer_speed(tokenizers, sample_text):
@@ -106,3 +77,32 @@ def test_dataset_map(tokenizers, sample_text):
     for item in mapped_ds:
         assert len(item["input_ids"]) > 0
     print("Dataset map test passed.")
+
+def test_private_unicode_chars(tokenizers):
+    tok1, _ = tokenizers
+    vocab = tok1.new_lang_tokenizer.get_vocab  # type: dict[str, int]
+    vocab_set = set(vocab.keys())
+
+    private_chars_in_vocab = [ch for ch in vocab_set if (len(ch) == 1 and 0xE000 <= ord(ch) <= 0xF8FF) or len(ch) != 1]
+
+    all_private_chars = [chr(cp) for cp in range(0xE000, 0xF8FF + 1)]
+    private_chars_not_in_vocab = random.sample(
+        [ch for ch in all_private_chars if ch not in vocab_set], k=5
+    )
+
+    normal_chars = ["a", "1", "中", "🙂"]
+
+    test_chars = "".join(private_chars_in_vocab[:5] + private_chars_not_in_vocab + normal_chars)
+
+    encoded_ids = tok1(test_chars, return_tensors="pt")["input_ids"][0].tolist()
+
+    assert all(isinstance(i, int) for i in encoded_ids), f"Found non-int token ids: {encoded_ids}"
+
+    decoded_text = tok1.decode(encoded_ids, skip_special_tokens=True)
+
+    unk_token = tok1.new_lang_tokenizer.unk_token
+    for ch in test_chars:
+        assert ch in decoded_text or unk_token in decoded_text, f"Character {ch} missing in decoded output"
+
+    print(decoded_text[:10])
+    print("Private Unicode chars encode/decode test passed. All token ids are valid integers.")

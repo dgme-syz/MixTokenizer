@@ -2,6 +2,7 @@ from setuptools import setup, Extension, find_packages
 from Cython.Build import cythonize
 import numpy as np
 import sys
+import pybind11
 
 # OpenMP flags
 if sys.platform == "win32":
@@ -10,11 +11,24 @@ else:
     openmp_flag = ["-fopenmp"]
 
 extensions = [
-    # === Cython ===
+    # === Cython  ===
     Extension(
         "MixTokenizer.core.segment_core",
         ["MixTokenizer/core/segment_core.pyx"],
         include_dirs=[np.get_include()],
+        language="c++",
+        extra_compile_args=["-O3"] + openmp_flag,
+        extra_link_args=openmp_flag,
+    ),
+
+    # === C++ pybind11  ===
+    Extension(
+        "MixTokenizer.core.judge_core",          
+        ["MixTokenizer/core/judge_core.cpp"],    
+        include_dirs=[
+            np.get_include(),
+            pybind11.get_include(),              # pybind11 include
+        ],
         language="c++",
         extra_compile_args=["-O3"] + openmp_flag,
         extra_link_args=openmp_flag,
@@ -44,6 +58,7 @@ setup(
         "scipy",
         "cython",
         "tokenizers",
+        "pybind11",
     ],
     python_requires=">=3.8",
 )
