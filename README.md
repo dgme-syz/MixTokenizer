@@ -6,6 +6,9 @@ Combine two tokenizers into one.
 
 ```bash
 pip install -e .
+
+# For test
+pip install -e .[dev]
 ```
 ## Mapping
 
