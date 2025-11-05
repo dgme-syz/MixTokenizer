@@ -9,6 +9,7 @@ pip install -e .
 
 # For test
 pip install -e .[dev]
+pytest -s tests/
 ```
 ## Mapping
 
