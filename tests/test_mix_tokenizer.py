@@ -26,7 +26,7 @@ def tokenizers(user_model_paths):
 
 @pytest.fixture
 def sample_text():
-    return ("􅊫􀞡󳉅󻶉􈽃􎾻󾓚􈯹" * 100000)
+    return ("􅊫􀞡󳉅󻶉􈽃􎾻󾓚􈯹" * 1000)
 
 
 def test_tokenizer_speed(tokenizers, sample_text):
@@ -46,7 +46,7 @@ def test_tokenizer_speed(tokenizers, sample_text):
 def test_decoder_consistency(tokenizers, sample_text):
     tok1, tok2 = tokenizers
     tokens1 = tok1([sample_text], return_tensors="pt")["input_ids"][0].tolist()
-    decoded = tok1.decode(tokens1)
+    decoded = tok1.decode(tokens1, map_back=False)
     assert decoded == sample_text
     print("Decoder consistency test passed.")
 

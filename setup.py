@@ -6,28 +6,28 @@ import pybind11
 
 # OpenMP flags
 if sys.platform == "win32":
-    openmp_flag = ["/openmp"]
+    openmp_flag = ["/openmp", "/std:c++17"]
 else:
-    openmp_flag = ["-fopenmp"]
+    openmp_flag = ["-fopenmp", "-std=c++17"]
 
 extensions = [
-    # === Cython  ===
-    Extension(
-        "MixTokenizer.core.segment_core",
-        ["MixTokenizer/core/segment_core.pyx"],
-        include_dirs=[np.get_include()],
-        language="c++",
-        extra_compile_args=["-O3"] + openmp_flag,
-        extra_link_args=openmp_flag,
-    ),
+    # # === Cython  ===
+    # Extension(
+    #     "MixTokenizer.core.segment_core",
+    #     ["MixTokenizer/core/segment_core.pyx"],
+    #     include_dirs=[np.get_include()],
+    #     language="c++",
+    #     extra_compile_args=["-O3"] + openmp_flag,
+    #     extra_link_args=openmp_flag,
+    # ),
 
     # === C++ pybind11  ===
     Extension(
-        "MixTokenizer.core.judge_core",          
-        ["MixTokenizer/core/judge_core.cpp"],    
+        "MixTokenizer.core.cpp_core",             
+        sources=["MixTokenizer/core/cpp_core.cpp"],  
         include_dirs=[
             np.get_include(),
-            pybind11.get_include(),              # pybind11 include
+            pybind11.get_include(),
         ],
         language="c++",
         extra_compile_args=["-O3"] + openmp_flag,

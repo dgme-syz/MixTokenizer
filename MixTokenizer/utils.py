@@ -10,8 +10,8 @@ from transformers import AutoTokenizer
 from scipy.stats import qmc
 from transformers.tokenization_utils import Trie
 
-from MixTokenizer.core.segment_core import find_change_points
-from MixTokenizer.core.judge_core import is_new_char_array
+from MixTokenizer.core.cpp_core import find_change_points, is_new_char_array, ComboTrie
+from MixTokenizer.lang_map.mapping import PrivateUnicodeMapper
 
 def sample_integer_points(L: int, K: int, N: int, seed: int = 42) -> np.ndarray:
     """
@@ -141,6 +141,9 @@ class MixTokenizerBase:
             vocab_path = os.path.join(new_path, "vocab.json")
             new_lang_tokenizer = NewLangTokenizer(vocab_file=vocab_path)
 
+        # Load old2new mapping
+        map_path = os.path.join(script_dir, "lang_map", "mapping.json")
+        instance.MAPPER = PrivateUnicodeMapper.from_mapping_dict(map_path)
 
         instance.new_lang_tokenizer = new_lang_tokenizer
         level = extra_config.get("level", None)
@@ -148,6 +151,9 @@ class MixTokenizerBase:
         if extra_config.get("mapping") and extra_config.get("used_ids"):
             print(f"Mapping file and used ids are loaded, level ignored: {level}")
             instance.mapping = extra_config["mapping"]
+            instance.trie = ComboTrie()
+            for x in instance.mapping:
+                instance.trie.insert(x)
             instance.level = len(instance.mapping[0])
             instance.zero_ids = extra_config["used_ids"]
             # ensure zero_ids are not in special_ids
@@ -177,6 +183,9 @@ class MixTokenizerBase:
         return self.reverse_mapping[tuple(token_ids)]
 
     def _convert_ids_to_new_lang_id_batch(self, batch_token_ids: List[List[int]] | np.ndarray) -> List[int]:
+        for tids in batch_token_ids:
+            if list(tids) not in self.mapping:
+                raise ValueError("acnachjakchas")
         return [self.reverse_mapping[tuple(tids)] for tids in batch_token_ids]
 
     def tokenize(self, text: str, **kwargs) -> List[str]:
@@ -201,6 +210,8 @@ class MixTokenizerBase:
 
                 for flag, start, end in segments:
                     seg = chunk_text[start:end]
+                    if len(seg) == 0: 
+                        continue
                     if flag:
                         append(self.new_lang_tokenizer.tokenize(seg))
                     else:
@@ -240,29 +251,41 @@ class MixTokenizerBase:
         then decodes each block using the appropriate tokenizer.
         """
 
+        map_back = kwargs.get("map_back", True)
+
         if isinstance(token_ids, int):
             token_ids = [token_ids]
         if not token_ids:
             return ""
-
+        
+        segments = self.trie.find_change_points_plus(token_ids)
         token_ids = np.array(token_ids, dtype=np.int64)
-        is_new = self.zero_mask[token_ids]
-        segments = find_change_points(is_new)
-
+        # print("dxcadasdas")
         decoded_segments = []
         append = decoded_segments.append
         decode_new = self.new_lang_tokenizer.decode
         rev_map = self._convert_ids_to_new_lang_id_batch
         lvl = self.level
-
+        # print(segments)
         for flag, start, end in segments:
             seg_ids = token_ids[start:end]
+            if len(seg_ids) == 0:
+                continue
             if flag:
+                # print(seg_ids)
                 assert len(seg_ids) % lvl == 0, f"Invalid new language token length {len(seg_ids)} (level={lvl})"
                 # chunk level
                 grouped = rev_map(seg_ids.reshape(-1, lvl))
-                append(decode_new(grouped))
+                ans = decode_new(grouped)
+                if map_back:
+                    # print("mapppp--------------------------------")
+                    # print(ans)
+                    ans = self.MAPPER.unmap_string(ans)
+                    # print(ans)
+                append(ans)
             else:
+                # print("dapppp--------------------------------")
+                # print(seg_ids)
                 append(super()._decode(seg_ids.tolist(), **kwargs))
 
         return "".join(decoded_segments)
