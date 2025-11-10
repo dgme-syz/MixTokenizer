@@ -1,118 +1,65 @@
-import json
-import os
-from typing import List, Union, Dict
+import regex as re
+from typing import List, Union
 
 import numpy as np
-from tokenizers import Tokenizer
-from tokenizers.models import WordLevel
-from tokenizers.pre_tokenizers import Split
-from transformers import AutoTokenizer
-from scipy.stats import qmc
-from transformers.tokenization_utils import Trie
 
-from MixTokenizer.core.cpp_core import find_change_points, is_new_char_array, ComboTrie
-from MixTokenizer.lang_map.mapping import PrivateUnicodeMapper
+ZH_RE = re.compile(
+    r'[\u4e00-\u9fff'
+    r'\u3002\uFF1F\uFF01\u3010\u3011\uFF0C\u3001\uFF1B\uFF1A'
+    r'\u300C\u300D\u300E\u300F\u2019\u201C\u201D\u2018'
+    r'\uFF08\uFF09\u3014\u3015\u2026\u2013\uFF0E\u2014'
+    r'\u300A\u300B\u3008\u3009'
+    r'\u00B7\uFF5E\uFE30\uFE31]'
+) # not contain space
 
-def sample_integer_points(L: int, K: int, N: int, seed: int = 42) -> np.ndarray:
-    """
-    Sample N integer points within [0, L-1]^K using a quasi-random Sobol sequence.
+# PRETOKENIZE_REGEX = r"""(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"""
+    
+class Mystring:
+    __slots__ = ("content", "flag")
 
-    Args:
-        L (int): Range of each dimension [0, L-1].
-        K (int): Number of dimensions.
-        N (int): Number of points to sample.
-        seed (int, optional): Random seed for reproducibility.
+    def __init__(self, content: str, flag: bool = False):
+        if not isinstance(content, str):
+            raise TypeError("content must be str")
+        self.content = content
+        self.flag = flag
 
-    Returns:
-        np.ndarray: (N, K) integer array of sampled points.
-    """
-    if seed is not None:
-        np.random.seed(seed)
-
-    # Sobol sequence produces low-discrepancy, quasi-uniform samples
-    sampler = qmc.Sobol(d=K, scramble=True, seed=seed)
-    m = int(np.ceil(np.log2(N)))  # Sobol requires 2^m samples
-    sobol_points = sampler.random_base2(m=m)[:N]
-
-    int_points = np.floor(sobol_points * L).astype(int)
-    np.random.shuffle(int_points)
-    return int_points
-
-class NewLangTokenizer:
-    """
-    Wrapper around BertWordPieceTokenizer for a custom language or symbol set.
-    """
-
-    def __init__(self, vocab_file: str | dict, **kwargs) -> None:
-        if isinstance(vocab_file, str):
-            with open(vocab_file, "r", encoding="utf-8") as f:
-                vocab = json.load(f)
+    def __add__(self, other):
+        if isinstance(other, Mystring):
+            new_content = self.content + other.content
+            new_flag = self.flag or other.flag
+            return Mystring(new_content, new_flag)
+        elif isinstance(other, str):
+            return Mystring(self.content + str(other), self.flag)
         else:
-            vocab = vocab_file
-        self.unk_token = "[UNK]"
-        self.tokens_trie = Trie()
-        self.all_special_tokens = []
-        for mark in [self.unk_token]:
-            self.tokens_trie.add(mark)
-            self.all_special_tokens.append(mark)
-            if mark not in vocab:
-                vocab[mark] = len(vocab)
-                
-        self.tokenizer = Tokenizer(WordLevel(vocab, unk_token=self.unk_token))
-        self.tokenizer.pre_tokenizer = Split(pattern="", behavior="isolated") #important
+            return NotImplemented
 
-    def __len__(self) -> int:
-        return self.tokenizer.get_vocab_size()
+    def __radd__(self, other):
+        if isinstance(other, str):
+            return Mystring(str(other) + self.content, self.flag)
+        else:
+            return NotImplemented
+    def __hash__(self):
+        return hash(self.content)
 
-    def tokenize(self, text: str) -> List[str]:
-        x = self.tokenizer.encode(text, add_special_tokens=False).tokens
-        return x
+    def __eq__(self, other):
+        if isinstance(other, Mystring):
+            return self.content == other.content
+        elif isinstance(other, str):
+            return self.content == str(other)
+        return False
 
-    def _convert_one_token_to_id(self, token: str) -> Union[int, List[int]]:
-        x = self.tokenizer.token_to_id(token)
-        return x 
-    
-    def is_new_char(self, ch: str) -> bool:
-        # Only treat single-character entries in vocab as new characters
-        # For faster tokenize, just ensure in private area
+def get_pairs(word):
+    """
+    Return set of symbol pairs in a word.
 
-        status = (
-            ch in self.all_special_tokens or (
-                len(ch) == 1 and ( 
-                    0xE000 <= ord(ch) <= 0xF8FF
-                    or 0xF0000 <= ord(ch) <= 0xFFFFD
-                    or 0x100000 <= ord(ch) <= 0x10FFFD
-                )
-            ) 
-        )
-
-        return status
-    
-    def is_new_char_array(self, text: str) -> np.ndarray:
-        if text in self.all_special_tokens:
-            return np.ones(len(text), dtype=bool)
-        return is_new_char_array(text)
-
-    def split_by_special_tokens(self, text: str) -> List[str]:
-        return self.tokens_trie.split(text)
-
-    def decode(self, token_ids: List[int]) -> str:
-        # Decode and remove spaces introduced by WordPiece
-        return self.tokenizer.decode(token_ids, skip_special_tokens=True).replace(" ", "")
-    
-    @property
-    def get_vocab(self) -> Dict[str, int]:
-        return self.tokenizer.get_vocab()
-
-    def save_pretrained(self, save_directory: str) -> None:
-        vocab = self.tokenizer.get_vocab()
-        # sort by value
-        vocab = dict(sorted(vocab.items(), key=lambda item: item[1]))
-        vocab_path = os.path.join(save_directory, "vocab.json")
-        with open(vocab_path, "w", encoding="utf-8") as f:
-            json.dump(vocab, f, ensure_ascii=False, indent=2)
-    
-
+    Word is represented as tuple of symbols (symbols being variable-length strings).
+    """
+    pairs = set()
+    prev_char = word[0]
+    for char in word[1:]:
+        pairs.add((prev_char, char))
+        prev_char = char
+    return pairs
 
 class MixTokenizerBase:
     """
@@ -124,117 +71,100 @@ class MixTokenizerBase:
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
         instance = super().from_pretrained(pretrained_model_name_or_path, **kwargs)
-        instance.pretrained_model_name_or_path = pretrained_model_name_or_path
-        # Load extra_config.json
-        script_dir = os.path.join(pretrained_model_name_or_path, cls.dir_name)
-        json_path = os.path.join(script_dir, "extra_config.json")
-        with open(json_path, "r", encoding="utf-8") as f:
-            extra_config = json.load(f)
-
-        # Load new tokenizer
-        new_path = os.path.join(script_dir, "new_tokenizer")
-        try:
-            print("Try to load AutoTokenizer from HF")
-            new_lang_tokenizer = AutoTokenizer.from_pretrained(new_path)
-        except Exception:
-            print("Fallback: use default WordLevel Tokenizer")
-            vocab_path = os.path.join(new_path, "vocab.json")
-            new_lang_tokenizer = NewLangTokenizer(vocab_file=vocab_path)
-
-        # Load old2new mapping
-        map_path = os.path.join(script_dir, "lang_map", "mapping.json")
-        instance.MAPPER = PrivateUnicodeMapper.from_mapping_dict(map_path)
-
-        instance.new_lang_tokenizer = new_lang_tokenizer
-        level = extra_config.get("level", None)
-
-        if extra_config.get("mapping") and extra_config.get("used_ids"):
-            print(f"Mapping file and used ids are loaded, level ignored: {level}")
-            instance.mapping = extra_config["mapping"]
-            instance.trie = ComboTrie()
-            for x in instance.mapping:
-                instance.trie.insert(x)
-            instance.level = len(instance.mapping[0])
-            instance.zero_ids = extra_config["used_ids"]
-            # ensure zero_ids are not in special_ids
-            if not hasattr(instance, "all_special_ids"):
-                instance.all_special_ids = [
-                    instance.convert_tokens_to_ids(t) for t in instance.all_special_tokens
-                ]
-                print(f"We collect all_special_ids = {instance.all_special_ids}")
-            assert not set(instance.zero_ids).intersection(set(instance.all_special_ids)), \
-                "zero_ids should not overlap with special token ids."
-            vocab_len = len(instance) + 10 # for safety
-            instance.zero_mask = np.zeros(vocab_len, dtype=bool)
-            instance.zero_mask[instance.zero_ids] = True
-            instance.reverse_mapping = {}
-            for i, point in enumerate(instance.mapping):
-                instance.reverse_mapping[tuple(point)] = i
-            # ensure mapping and reverse_mapping are consistent
-            for k, v in instance.reverse_mapping.items():
-                assert tuple(instance.mapping[v]) == k, "Mapping and reverse mapping are inconsistent."
-        else:
-            raise ValueError(
-                "Ensure mapping and used_ids exist in config, or frequency_id_files and level exist in config."
-            )
+        instance.vocab_len = len(instance)
+        # instance.pat = re.compile(PRETOKENIZE_REGEX)
+        print(
+            f"[INFO] vocab length = {instance.vocab_len}\n"
+            f"[INFO] all_special_tokens = {instance.all_special_tokens}\n"
+            f"[INFO] eos_token = {instance.eos_token}\n"
+        )
         return instance
-    
-    def _convert_ids_to_new_lang_id(self, token_ids: List[int] | np.ndarray) -> int:
-        return self.reverse_mapping[tuple(token_ids)]
 
-    def _convert_ids_to_new_lang_id_batch(self, batch_token_ids: List[List[int]] | np.ndarray) -> List[int]:
-        for tids in batch_token_ids:
-            if list(tids) not in self.mapping:
-                raise ValueError("acnachjakchas")
-        return [self.reverse_mapping[tuple(tids)] for tids in batch_token_ids]
+    def check_zh(self, token: str) -> bool:
+        # print(f"token={token}")
+        return ZH_RE.search(token) and token not in self.all_special_tokens
 
-    def tokenize(self, text: str, **kwargs) -> List[str]:
-        """
-        Two-stage tokenization:
-        1. Group characters by type (new_lang vs Qwen).
-        2. Tokenize each segment using the appropriate tokenizer.
-        """
-        # First chunk
-        # print(f"tokenize text={text}")
-        tokens = []
-        append = tokens.extend  
-        for chunk_text in self.new_lang_tokenizer.split_by_special_tokens(text):
-            if chunk_text in self.new_lang_tokenizer.all_special_tokens:
-                append(self.new_lang_tokenizer.tokenize(chunk_text))
+    def bpe(self, token_list: List):
+        key = tuple(token_list)
+        if key in self.cache:
+            return self.cache[key]
+         
+        pairs = get_pairs(token_list)
+
+        if not pairs:
+            return [f"{x.content} {x.flag}" for x in token_list]
+        word = token_list
+        while True:
+            bigram = min(pairs, key=lambda pair: self.bpe_ranks.get(pair, float("inf")))
+            if bigram not in self.bpe_ranks:
+                break
+            first, second = bigram
+            new_word = []
+            i = 0
+            while i < len(word):
+                try:
+                    j = word.index(first, i)
+                except ValueError:
+                    new_word.extend(word[i:])
+                    break
+                else:
+                    new_word.extend(word[i:j])
+                    i = j
+
+                if word[i] == first and i < len(word) - 1 and word[i + 1] == second:
+                    new_word.append(first + second)
+                    i += 2
+                else:
+                    new_word.append(word[i])
+                    i += 1
+            word = new_word
+            if len(word) == 1:
+                break
             else:
-                is_new = self.new_lang_tokenizer.is_new_char_array(chunk_text)
+                pairs = get_pairs(word)
+        word = [f"{x.content} {x.flag}" for x in word]
+        self.cache[key] = word
+        return word
 
-                # transfer [0,0,1,1,0] → [0,2,4,5]
-                # True: new_lang seg, False: base_lang seg
-                segments = find_change_points(is_new)
+    def _tokenize(self, text: str, **kwargs) -> List[str]:
+        bpe_tokens = []
+        for token in re.findall(self.pat, text):
+            token_list = []
+            for ch in token:
+                if self.check_zh(ch):
+                    token_list.extend([ Mystring(self.byte_encoder[b], 1) for b in ch.encode("utf-8") ])
+                else:
+                    token_list.extend([ Mystring(self.byte_encoder[b], 0) for b in ch.encode("utf-8") ])
 
-                for flag, start, end in segments:
-                    seg = chunk_text[start:end]
-                    if len(seg) == 0: 
-                        continue
-                    if flag:
-                        append(self.new_lang_tokenizer.tokenize(seg))
-                    else:
-                        append(super().tokenize(seg, **kwargs))
-        # print(f"tokenized tokens={tokens}")
-        return tokens
+            bpe_tokens.extend(self.bpe(token_list))
+        # print(bpe_tokens)
+        return bpe_tokens
 
     def _convert_one_token_to_id(self, token: str) -> Union[int, List[int]]:
         """
         Convert a token to one or more IDs depending on its type.
         """
-        if self.new_lang_tokenizer.is_new_char(token):
-            token_id = self.new_lang_tokenizer._convert_one_token_to_id(token)
-            # print("***||")
-            # print(token_id, self.mapping[token_id])
-            return self.mapping[token_id]
-        else:
-            return self._convert_token_to_id_with_added_voc(token)
+        if " " in token and token != " ":
+            token, flag = token.split()
+            if flag == "1":
+                # print(f"{token, flag}")
+                temp = self._convert_token_to_id_with_added_voc(token)
+                if isinstance(temp, int):
+                    temp += self.vocab_len
+                    return temp
+                elif isinstance(temp, list):
+                    return (np.array(temp) + self.vocab_len).tolist()
+                else:
+                    raise ValueError(f"expect type(token) = int or list!, get temp = {temp}")
+            elif flag == "0":
+                return self._convert_token_to_id_with_added_voc(token)
+            else:
+                raise ValueError
+        return self._convert_token_to_id_with_added_voc(token)
 
     def convert_tokens_to_ids(self, tokens: Union[str, List[str]]) -> Union[int, List[int]]:
         if tokens is None:
             return None
-        # print(f"tokens = {tokens}")
         if isinstance(tokens, str):
             return self._convert_one_token_to_id(tokens)
 
@@ -250,45 +180,9 @@ class MixTokenizerBase:
         Groups consecutive tokens by type (new_lang vs base_lang),
         then decodes each block using the appropriate tokenizer.
         """
-
-        map_back = kwargs.get("map_back", True)
-
-        if isinstance(token_ids, int):
-            token_ids = [token_ids]
-        if not token_ids:
-            return ""
-        
-        segments = self.trie.find_change_points_plus(token_ids)
-        token_ids = np.array(token_ids, dtype=np.int64)
-        # print("dxcadasdas")
-        decoded_segments = []
-        append = decoded_segments.append
-        decode_new = self.new_lang_tokenizer.decode
-        rev_map = self._convert_ids_to_new_lang_id_batch
-        lvl = self.level
-        # print(segments)
-        for flag, start, end in segments:
-            seg_ids = token_ids[start:end]
-            if len(seg_ids) == 0:
-                continue
-            if flag:
-                # print(seg_ids)
-                assert len(seg_ids) % lvl == 0, f"Invalid new language token length {len(seg_ids)} (level={lvl})"
-                # chunk level
-                grouped = rev_map(seg_ids.reshape(-1, lvl))
-                ans = decode_new(grouped)
-                if map_back:
-                    # print("mapppp--------------------------------")
-                    # print(ans)
-                    ans = self.MAPPER.unmap_string(ans)
-                    # print(ans)
-                append(ans)
-            else:
-                # print("dapppp--------------------------------")
-                # print(seg_ids)
-                append(super()._decode(seg_ids.tolist(), **kwargs))
-
-        return "".join(decoded_segments)
+        arr = np.array(token_ids)
+        token_ids = np.where(arr >= self.vocab_len, arr - self.vocab_len, arr).tolist()
+        return super()._decode(token_ids, **kwargs)
     
 def get_mix_tokenizer(tokenizer_cls, dir_name="mix"):
     class_name = f"MixTokenizer"

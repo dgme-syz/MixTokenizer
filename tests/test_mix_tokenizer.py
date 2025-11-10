@@ -26,7 +26,7 @@ def tokenizers(user_model_paths):
 
 @pytest.fixture
 def sample_text():
-    return ("􅊫􀞡󳉅󻶉􈽃􎾻󾓚􈯹" * 1000)
+    return ("你好akhdkas ajda !ajca你好cajdasljcjlaccaslcl!javcj  ajlda &&&&&jacl" * 1000)
 
 
 def test_tokenizer_speed(tokenizers, sample_text):
@@ -71,38 +71,9 @@ def test_dataset_map(tokenizers, sample_text):
     ds = Dataset.from_dict({"text": texts})
 
     def tokenize_batch(batch):
-        return {"input_ids": [tok1.tokenize(t) for t in batch["text"]]}
+        return {"tonize": [tok1.tokenize(t) for t in batch["text"]]}
 
-    mapped_ds = ds.map(tokenize_batch, batched=True)
+    mapped_ds = ds.map(tokenize_batch, batched=True, load_from_cache_file=False, cache_file_name=None,)
     for item in mapped_ds:
-        assert len(item["input_ids"]) > 0
+        assert len(item["tonize"]) > 0
     print("Dataset map test passed.")
-
-def test_private_unicode_chars(tokenizers):
-    tok1, _ = tokenizers
-    vocab = tok1.new_lang_tokenizer.get_vocab  # type: dict[str, int]
-    vocab_set = set(vocab.keys())
-
-    private_chars_in_vocab = [ch for ch in vocab_set if (len(ch) == 1 and 0xE000 <= ord(ch) <= 0xF8FF) or len(ch) != 1]
-
-    all_private_chars = [chr(cp) for cp in range(0xE000, 0xF8FF + 1)]
-    private_chars_not_in_vocab = random.sample(
-        [ch for ch in all_private_chars if ch not in vocab_set], k=5
-    )
-
-    normal_chars = ["a", "1", "中", "🙂"]
-
-    test_chars = "".join(private_chars_in_vocab[:5] + private_chars_not_in_vocab + normal_chars)
-
-    encoded_ids = tok1(test_chars, return_tensors="pt")["input_ids"][0].tolist()
-
-    assert all(isinstance(i, int) for i in encoded_ids), f"Found non-int token ids: {encoded_ids}"
-
-    decoded_text = tok1.decode(encoded_ids, skip_special_tokens=True)
-
-    unk_token = tok1.new_lang_tokenizer.unk_token
-    for ch in test_chars:
-        assert ch in decoded_text or unk_token in decoded_text, f"Character {ch} missing in decoded output"
-
-    print(decoded_text[:10])
-    print("Private Unicode chars encode/decode test passed. All token ids are valid integers.")

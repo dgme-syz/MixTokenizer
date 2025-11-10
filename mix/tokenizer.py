@@ -25,4 +25,4 @@ from transformers import Qwen2Tokenizer
 tokenizer_cls = Qwen2Tokenizer
 
 # Register dynamic class globally
-globals()["MixTokenizer"] = get_mix_tokenizer(tokenizer_cls=tokenizer_cls)
+globals()["MixTokenizer"] = get_mix_tokenizer(tokenizer_cls=tokenizer_cls, dir_name=dir_name)

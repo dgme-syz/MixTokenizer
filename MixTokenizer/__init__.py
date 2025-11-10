@@ -1,14 +1,6 @@
-from MixTokenizer.utils import sample_integer_points, NewLangTokenizer, get_mix_tokenizer
+from MixTokenizer.utils import get_mix_tokenizer
 
 
 __all__ = [
-    "sample_integer_points",
-    "NewLangTokenizer",
     "get_mix_tokenizer",
 ]
-
-# from transformers import AutoTokenizer
-# x = AutoTokenizer.from_pretrained("/home/nfs06/shenyz/models/Qwen2.5-0.5B")
-# z = "\U001052ab\U001007a1\U000f3245\U000fbd89\U00108f43\U0010efbb\U000fe4da\U00108bf9\ue319\U000f21bc\U00108ee5\U00103b1a\U00103b1a\U001024d0\U001016d6\U00108ee5\U000f1416\U000fd253\U000fd407\U00103b1a\U00103b1a\U00104f13\U000fc479\U001007a1\U00108f43\U0010474c\U000f8300\U000f7264\U00108ee5\U00100cc7\U000ff835\U000f9510\U0010f0ac\uf32a\U001007a1\U000f4f18\U000f436a\U00108415\U0010d67e\U00100cc7\U00108bf9\U0010cf3d\U001016d6\U00105ca0\U000f6866\U00100cc7\U00109a11\U00106945\U000f4dd9\U000f19d2\U0010f0ac\U00108ee5\U000f2764\U000fd53e\U0010ff4c\U00106351\U000f7ae8\U000fbf82\U000f2250\U00103b1a\U00103b1a\U000f3245\U000fbd89\U00108ee5\U00103b1a\U00103b1a\U0010d4d2\U000fe70b\U000fd53e\U001007a1\U0010ea6c\U000f84f4\U000f5900\U00108bf9\U000f2250\U000fb88e"
-# x([z])
-# x.decode(x([z])["input_ids"][0])

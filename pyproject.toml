@@ -17,20 +17,16 @@ classifiers = [
 ]
 
 dependencies = [
-    "transformers>=4.57.1",
-    "tokenizers",
+    "transformers",
     "numpy",
-    "scipy",
-    "cython",
 ]
 
 [build-system]
 requires = [
     "setuptools>=61.0",
     "wheel",
-    "Cython",
     "numpy",
-    "pybind11",
+    "cython"
 ]
 build-backend = "setuptools.build_meta"
 
