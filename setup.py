@@ -11,6 +11,7 @@ setup(
         "transformers",
         "datasets",
         "numpy",
+        "bitarray",
     ],
     ext_modules=cythonize(
         Extension(

@@ -21,7 +21,6 @@ def is_zh_char(c):
     return c in EXTRA_ZH_CHARS
 
 # PRETOKENIZE_REGEX = r"""(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"""
-# from MixTokenizer.core.mystring import Mystring
 from MixTokenizer.core.str import zh_encode
 class Mystring:
     __slots__ = ("content", "flag")
