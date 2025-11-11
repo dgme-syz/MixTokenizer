@@ -2,18 +2,27 @@ import regex as re
 from typing import List, Union
 
 import numpy as np
+from bitarray import bitarray
 
-ZH_RE = re.compile(
-    r'[\u4e00-\u9fff'
-    r'\u3002\uFF1F\uFF01\u3010\u3011\uFF0C\u3001\uFF1B\uFF1A'
-    r'\u300C\u300D\u300E\u300F\u2019\u201C\u201D\u2018'
-    r'\uFF08\uFF09\u3014\u3015\u2026\u2013\uFF0E\u2014'
-    r'\u300A\u300B\u3008\u3009'
-    r'\u00B7\uFF5E\uFE30\uFE31]'
-) # not contain space
+ZH_RANGE = (0x4E00, 0x9FFF)
+
+EXTRA_ZH_CHARS = set([
+    "。","？","！","【","】","，","、","；","：",
+    "「","」","『","』","’","“","”","‘",
+    "（","）","〔","〕","…","–","．","—",
+    "《","》","〈","〉",
+    "·","～","︰","︱",
+])
+
+def is_zh_char(c):
+    cp = ord(c)
+    if ZH_RANGE[0] <= cp <= ZH_RANGE[1]:
+        return True
+    return c in EXTRA_ZH_CHARS
 
 # PRETOKENIZE_REGEX = r"""(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"""
-    
+# from MixTokenizer.core.mystring import Mystring
+from MixTokenizer.core.str import zh_encode
 class Mystring:
     __slots__ = ("content", "flag")
 
@@ -87,17 +96,19 @@ class MixTokenizerBase:
 
     def check_zh(self, token: str) -> bool:
         # print(f"token={token}")
-        return ZH_RE.search(token) and token not in self.all_special_tokens
+        return is_zh_char(token)
+    def check_zh_array(self, token_array: List[str]) -> List[bool]:
+        return [is_zh_char(token) for token in token_array]
 
     def bpe(self, token_list: List):
-        key = tuple(token_list)
+        key = "".join([x.content for x in token_list])
         if key in self.cache:
             return self.cache[key]
          
         pairs = get_pairs(token_list)
 
         if not pairs:
-            return [f"{x.content} {x.flag}" for x in token_list]
+            return " ".join([f"{x.content}" for x in token_list]), bitarray([x.flag for x in token_list])
         word = token_list
         while True:
             bigram = min(pairs, key=lambda pair: self.bpe_ranks.get(pair, float("inf")))
@@ -108,6 +119,7 @@ class MixTokenizerBase:
             i = 0
             while i < len(word):
                 try:
+                    # print(first.content, first.flag)
                     j = word.index(first, i)
                 except ValueError:
                     new_word.extend(word[i:])
@@ -116,7 +128,7 @@ class MixTokenizerBase:
                     new_word.extend(word[i:j])
                     i = j
 
-                if word[i] == first and i < len(word) - 1 and word[i + 1] == second:
+                if word[i].content == first.content and i < len(word) - 1 and word[i + 1].content == second.content:
                     new_word.append(first + second)
                     i += 2
                 else:
@@ -127,7 +139,7 @@ class MixTokenizerBase:
                 break
             else:
                 pairs = get_pairs(word)
-        word = [f"{x.content} {x.flag}" for x in word]
+        word = " ".join([f"{x.content}" for x in word]), bitarray([x.flag for x in word])
         self.cache[key] = word
         return word
 
@@ -135,13 +147,13 @@ class MixTokenizerBase:
         bpe_tokens = []
         for token in re.findall(self.pat, text):
             token_list = []
-            for ch in token:
-                if self.check_zh(ch):
-                    token_list.extend([ Mystring(self.byte_encoder[b], 1) for b in ch.encode("utf-8") ])
-                else:
-                    token_list.extend([ Mystring(self.byte_encoder[b], 0) for b in ch.encode("utf-8") ])
-
-            bpe_tokens.extend(self.bpe(token_list))
+            tokens, flags = zh_encode(token)
+            tokens = [self.byte_encoder[b] for b in tokens]
+            for t, f in zip(tokens, flags):
+                token_list.append(Mystring(t, f))
+            string, flag = self.bpe(token_list)
+            bpe_tokens.extend([f"{s} {int(flg)}" for s, flg in zip(string.split(" "), flag)])
+            del token_list, tokens, flags, string, flag
         # print(bpe_tokens)
         return bpe_tokens
 
@@ -164,7 +176,7 @@ class MixTokenizerBase:
             elif flag == "0":
                 return self._convert_token_to_id_with_added_voc(token)
             else:
-                raise ValueError
+                raise ValueError(f"Invalid flag value: {flag}")
         return self._convert_token_to_id_with_added_voc(token)
 
     def convert_tokens_to_ids(self, tokens: Union[str, List[str]]) -> Union[int, List[int]]:

@@ -12,9 +12,7 @@ from MixTokenizer import get_mix_tokenizer
 # ├── model.safetensors         # Model weights
 # ├── ...                       # Other model-related files
 # └── mix/                     # Extra assets for MixTokenizer
-#     ├── extra_config.json     # Mapping info, level, frequency info
 #     ├── tokenizer.py          # Custom tokenizer wrapper
-#     ├── new_tokenizer/        # Your special language tokenizer (e.g., vocab.json)
 #
 # ✨ Note: Keep the 'extra' folder intact to enable all MixTokenizer features!
 

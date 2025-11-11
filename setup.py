@@ -1,4 +1,5 @@
-from setuptools import setup, find_packages
+from setuptools import setup, find_packages, Extension
+from Cython.Build import cythonize
 
 setup(
     name="MixTokenizer",
@@ -8,7 +9,16 @@ setup(
     zip_safe=False,
     install_requires=[
         "transformers",
+        "datasets",
         "numpy",
     ],
+    ext_modules=cythonize(
+        Extension(
+            "MixTokenizer.core.str",
+            ["MixTokenizer/core/str.pyx"],
+            language="c++"
+        ),
+        compiler_directives={"language_level": "3"},
+    ),
     python_requires=">=3.8",
 )

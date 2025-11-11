@@ -26,7 +26,7 @@ def tokenizers(user_model_paths):
 
 @pytest.fixture
 def sample_text():
-    return ("你好akhdkas ajda !ajca你好cajdasljcjlaccaslcl!javcj  ajlda &&&&&jacl" * 1000)
+    return ("你好akhdkas ajda !ajca你好cajdasljcjlaccaslcl!javcj  ajlda &&&&&jacl" * 10000)
 
 
 def test_tokenizer_speed(tokenizers, sample_text):
