@@ -71,14 +71,19 @@ class MixTokenizerBase:
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
         instance = super().from_pretrained(pretrained_model_name_or_path, **kwargs)
-        instance.vocab_len = len(instance)
+        instance.vocab_len = super().__len__(instance)
         # instance.pat = re.compile(PRETOKENIZE_REGEX)
         print(
             f"[INFO] vocab length = {instance.vocab_len}\n"
+            f"[INFO] current length = {len(instance)}\n"
             f"[INFO] all_special_tokens = {instance.all_special_tokens}\n"
             f"[INFO] eos_token = {instance.eos_token}\n"
         )
         return instance
+
+    # dummy length
+    def __len__(self):
+        return 2 * super().__len__()
 
     def check_zh(self, token: str) -> bool:
         # print(f"token={token}")
