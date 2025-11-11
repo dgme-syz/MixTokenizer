@@ -9,7 +9,7 @@ import torch
 
 from MixTokenizer import sample_integer_points
 
-def get_mix_tokenizer(tokenizer_cls):
+def get_mix_tokenizer(tokenizer_cls, expand: int = 0, expand_only: bool = False):
 
     class MixTokenizer(tokenizer_cls):
         """
@@ -22,6 +22,9 @@ def get_mix_tokenizer(tokenizer_cls):
 
             instance.new_lang_tokenizer = new_lang_tokenizer
             return instance
+        
+        def __len__(self):
+            return super().__len__() + expand
         
         def save_to_json(self, output_dir: str = None):
             if output_dir is None:
@@ -74,10 +77,10 @@ def get_mix_tokenizer(tokenizer_cls):
                     frequency_counter.update({i: 0})
 
             # Sort tokens by ascending frequency
-            frequency_list = sorted(frequency_counter.items(), key=lambda x: x[1])
+            frequency_list = sorted(frequency_counter.items(), key=lambda x: (x[1], -x[0]))
 
             # Collect zero-frequency token IDs
-            zero_ids = [tid for tid, freq in frequency_list if (freq == 0 and tid not in special_ids)]
+            zero_ids = [tid for tid, freq in frequency_list if ((freq == 0 and tid not in special_ids) and (expand_only is False or tid >= len(self) - expand))]
             if not zero_ids:
                 raise ValueError("No zero-frequency tokens available for mapping.")
 

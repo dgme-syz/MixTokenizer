@@ -34,6 +34,8 @@ new: "\U001052ab\U001007a1\U000f3245\U000fbd89\U00108f43\U0010efbb\U000fe4da\U00
 
 Check and edit parameters in config.yaml, then run:
 
+For exanding vocabs, we provide `mix_trained.expand` (expand the vocabulary size) and `mix_trained.expand_only` (just use expand id or not) in `config.yaml`, you can see their usage in `scripts/train.py`.
+
 ```bash
 # Train and generate injection files (default output_dir: mix/)
 python3 scripts/train.py

@@ -177,8 +177,17 @@ class MixTokenizerBase:
             raise ValueError(
                 "Ensure mapping and used_ids exist in config, or frequency_id_files and level exist in config."
             )
+        
+        print(
+            f"[INFO] current length = {len(instance)}\n"
+            f"[INFO] all_special_tokens = {instance.all_special_tokens}\n"
+            f"[INFO] eos_token = {instance.eos_token}\n"
+        )
         return instance
     
+    def __len__(self):
+        return max(super().__len__(), (max(self.zero_ids) + 1) if hasattr(self, "zero_ids") else 0)
+
     def _convert_ids_to_new_lang_id(self, token_ids: List[int] | np.ndarray) -> int:
         return self.reverse_mapping[tuple(token_ids)]
 

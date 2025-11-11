@@ -49,5 +49,7 @@ mix_trained:
   counter_path: [MixTokenizer/en.bin, MixTokenizer/zh.bin]
   level: 2
   seed: 42
+  expand: 4801
+  expand_only: true
 
 output_dir: mix/

@@ -26,7 +26,7 @@ def tokenizers(user_model_paths):
 
 @pytest.fixture
 def sample_text():
-    return ("􅊫􀞡󳉅󻶉􈽃􎾻󾓚􈯹" * 1000)
+    return ("􅊫􀞡󳉅󻶉􈽃􎾻󾓚􈯹" * 100000)
 
 
 def test_tokenizer_speed(tokenizers, sample_text):

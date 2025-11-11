@@ -89,11 +89,11 @@ def main():
     except AttributeError:
         tokenizer_cls_name = "Qwen2Tokenizer"
         tokenizer_cls = getattr(transformers, tokenizer_cls_name)
-    mix_tokenizer_cls = get_mix_tokenizer(tokenizer_cls=tokenizer_cls)
+    mix_trained = args.mix_trained
+    mix_tokenizer_cls = get_mix_tokenizer(tokenizer_cls=tokenizer_cls, expand=mix_trained.get("expand", 0), expand_only=mix_trained.get("expand_only", False))
 
     # 4. Frequency counting (multi-process if doc_path provided)
     counter = Counter()
-    mix_trained = args.mix_trained
 
     if mix_trained.get("doc_path", None):
         # JSONL files provided
