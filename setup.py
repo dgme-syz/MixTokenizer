@@ -1,5 +1,22 @@
 from setuptools import setup, find_packages, Extension
-from Cython.Build import cythonize
+import pybind11
+
+ext_modules = [
+    Extension(
+        "Mixtokenizer.core.decode",
+        sources=["Mixtokenizer/core/decode.cpp"],
+        include_dirs=[pybind11.get_include(), "Mixtokenizer/core"],
+        language="c++",
+        extra_compile_args=["-std=c++17"],
+    ),
+    Extension(
+        "Mixtokenizer.core.utils",
+        sources=["Mixtokenizer/core/utils.cpp"],
+        include_dirs=[pybind11.get_include(), "Mixtokenizer/core"],
+        language="c++",
+        extra_compile_args=["-std=c++17"],  
+    )
+]
 
 setup(
     name="MixTokenizer",
@@ -13,13 +30,6 @@ setup(
         "numpy",
         "bitarray",
     ],
-    ext_modules=cythonize(
-        Extension(
-            "MixTokenizer.core.str",
-            ["MixTokenizer/core/str.pyx"],
-            language="c++"
-        ),
-        compiler_directives={"language_level": "3"},
-    ),
+    ext_modules=ext_modules,
     python_requires=">=3.8",
 )

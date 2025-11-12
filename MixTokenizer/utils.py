@@ -2,7 +2,10 @@ import regex as re
 from typing import List, Union
 
 import numpy as np
-from bitarray import bitarray
+from tqdm import tqdm
+
+from MixTokenizer.core.utils import ChineseSplitter
+from MixTokenizer.core.decode import HybridDecoder
 
 ZH_RANGE = (0x4E00, 0x9FFF)
 
@@ -14,61 +17,6 @@ EXTRA_ZH_CHARS = set([
     "·","～","︰","︱",
 ])
 
-def is_zh_char(c):
-    cp = ord(c)
-    if ZH_RANGE[0] <= cp <= ZH_RANGE[1]:
-        return True
-    return c in EXTRA_ZH_CHARS
-
-# PRETOKENIZE_REGEX = r"""(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"""
-from MixTokenizer.core.str import zh_encode
-class Mystring:
-    __slots__ = ("content", "flag")
-
-    def __init__(self, content: str, flag: bool = False):
-        if not isinstance(content, str):
-            raise TypeError("content must be str")
-        self.content = content
-        self.flag = flag
-
-    def __add__(self, other):
-        if isinstance(other, Mystring):
-            new_content = self.content + other.content
-            new_flag = self.flag or other.flag
-            return Mystring(new_content, new_flag)
-        elif isinstance(other, str):
-            return Mystring(self.content + str(other), self.flag)
-        else:
-            return NotImplemented
-
-    def __radd__(self, other):
-        if isinstance(other, str):
-            return Mystring(str(other) + self.content, self.flag)
-        else:
-            return NotImplemented
-    def __hash__(self):
-        return hash(self.content)
-
-    def __eq__(self, other):
-        if isinstance(other, Mystring):
-            return self.content == other.content
-        elif isinstance(other, str):
-            return self.content == str(other)
-        return False
-
-def get_pairs(word):
-    """
-    Return set of symbol pairs in a word.
-
-    Word is represented as tuple of symbols (symbols being variable-length strings).
-    """
-    pairs = set()
-    prev_char = word[0]
-    for char in word[1:]:
-        pairs.add((prev_char, char))
-        prev_char = char
-    return pairs
-
 class MixTokenizerBase:
     """
     Combines Qwen2Tokenizer with an additional tokenizer for a custom language.
@@ -79,126 +27,61 @@ class MixTokenizerBase:
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
         instance = super().from_pretrained(pretrained_model_name_or_path, **kwargs)
-        instance.vocab_len = super().__len__(instance)
-        # instance.pat = re.compile(PRETOKENIZE_REGEX)
+        
+        temp_list = []
+        ZH_CHARS = {chr(i) for i in range(ZH_RANGE[0], ZH_RANGE[1] + 1)}
+        ZH_USED_CHARS = set()
+        for ch in tqdm(ZH_CHARS | EXTRA_ZH_CHARS, desc="Building HybridDecoder"):
+            if isinstance(ch, int):
+                ch = chr(ch)  
+            try:
+                bytes_seq = ch.encode("gb2312")
+            except:
+                print(f"[WARN] cannot encode char {ch} in gb2312")
+                continue
+            
+            if len(bytes_seq) != 2:
+                assert False, f"Expected 2 bytes for gb2312 encoding of {ch}, got {len(bytes_seq)} bytes."
+            ZH_USED_CHARS.add(ch if isinstance(ch, int) else ord(ch))
+            temp_list.append([ord(instance.byte_encoder[x]) for x in bytes_seq])
+        instance.mix_decoder = HybridDecoder(2, temp_list)
+        instance.splitter = ChineseSplitter(list(ZH_USED_CHARS))
         print(
-            f"[INFO] vocab length = {instance.vocab_len}\n"
             f"[INFO] current length = {len(instance)}\n"
             f"[INFO] all_special_tokens = {instance.all_special_tokens}\n"
             f"[INFO] eos_token = {instance.eos_token}\n"
         )
         return instance
 
-    # dummy length
-    def __len__(self):
-        return 2 * super().__len__()
-
-    def check_zh(self, token: str) -> bool:
-        # print(f"token={token}")
-        return is_zh_char(token)
-    def check_zh_array(self, token_array: List[str]) -> List[bool]:
-        return [is_zh_char(token) for token in token_array]
-
-    def bpe(self, token_list: List):
-        key = "".join([x.content for x in token_list])
-        if key in self.cache:
-            return self.cache[key]
-         
-        pairs = get_pairs(token_list)
-
-        if not pairs:
-            return " ".join([f"{x.content}" for x in token_list]), bitarray([x.flag for x in token_list])
-        word = token_list
-        while True:
-            bigram = min(pairs, key=lambda pair: self.bpe_ranks.get(pair, float("inf")))
-            if bigram not in self.bpe_ranks:
-                break
-            first, second = bigram
-            new_word = []
-            i = 0
-            while i < len(word):
-                try:
-                    # print(first.content, first.flag)
-                    j = word.index(first, i)
-                except ValueError:
-                    new_word.extend(word[i:])
-                    break
-                else:
-                    new_word.extend(word[i:j])
-                    i = j
-
-                if word[i].content == first.content and i < len(word) - 1 and word[i + 1].content == second.content:
-                    new_word.append(first + second)
-                    i += 2
-                else:
-                    new_word.append(word[i])
-                    i += 1
-            word = new_word
-            if len(word) == 1:
-                break
-            else:
-                pairs = get_pairs(word)
-        word = " ".join([f"{x.content}" for x in word]), bitarray([x.flag for x in word])
-        self.cache[key] = word
-        return word
-
-    def _tokenize(self, text: str, **kwargs) -> List[str]:
+    def _tokenize(self, text):
+        """Tokenize a string."""
         bpe_tokens = []
         for token in re.findall(self.pat, text):
-            token_list = []
-            tokens, flags = zh_encode(token)
-            tokens = [self.byte_encoder[b] for b in tokens]
-            for t, f in zip(tokens, flags):
-                token_list.append(Mystring(t, f))
-            string, flag = self.bpe(token_list)
-            bpe_tokens.extend([f"{s} {int(flg)}" for s, flg in zip(string.split(" "), flag)])
-            del token_list, tokens, flags, string, flag
-        # print(bpe_tokens)
+            ret = ""
+            for flag, l, r in self.splitter.py_split_zh_nonzh(token):
+                t = "".join(
+                    self.byte_encoder[b] for b in token[l:r].encode("utf-8" if not flag else "gb2312")
+                )
+                ret += t
+                print(f"segment: {token[l:r]}, is_zh: {flag}, {t}, len={len(t)}")
+            # print(f"token after byte encoding: {ret}")
+            bpe_tokens.extend(bpe_token for bpe_token in self.bpe(ret).split(" "))
         return bpe_tokens
 
-    def _convert_one_token_to_id(self, token: str) -> Union[int, List[int]]:
-        """
-        Convert a token to one or more IDs depending on its type.
-        """
-        if " " in token and token != " ":
-            token, flag = token.split()
-            if flag == "1":
-                # print(f"{token, flag}")
-                temp = self._convert_token_to_id_with_added_voc(token)
-                if isinstance(temp, int):
-                    temp += self.vocab_len
-                    return temp
-                elif isinstance(temp, list):
-                    return (np.array(temp) + self.vocab_len).tolist()
-                else:
-                    raise ValueError(f"expect type(token) = int or list!, get temp = {temp}")
-            elif flag == "0":
-                return self._convert_token_to_id_with_added_voc(token)
-            else:
-                raise ValueError(f"Invalid flag value: {flag}")
-        return self._convert_token_to_id_with_added_voc(token)
+    def convert_tokens_to_string(self, tokens):
+        """Converts a sequence of tokens (string) in a single string."""
+        tokens = [x  for x in "".join(tokens)]
+        intervals = self.mix_decoder.decode([ord(x) for x in tokens], strict=False)
+        ans = ""
+        for flag, l, r in intervals:
+            temp = bytearray(
+                [self.byte_decoder[c] for c in "".join(tokens[l:r])]
+            ).decode("utf-8" if not flag else "gb2312", errors=self.errors)
+            ans += temp
+            print(f"Decode segment: {tokens[l:r]}, is_zh: {flag}, l={l}, r={r} -> {temp}")
 
-    def convert_tokens_to_ids(self, tokens: Union[str, List[str]]) -> Union[int, List[int]]:
-        if tokens is None:
-            return None
-        if isinstance(tokens, str):
-            return self._convert_one_token_to_id(tokens)
-
-        ids = []
-        for token in tokens:
-            mapped = self._convert_one_token_to_id(token)
-            ids.extend(mapped if isinstance(mapped, list) else [mapped])
-        return ids
-
-    def _decode(self, token_ids: Union[int, List[int]], **kwargs) -> str:
-        """
-        High-performance decoding of token ID sequences.
-        Groups consecutive tokens by type (new_lang vs base_lang),
-        then decodes each block using the appropriate tokenizer.
-        """
-        arr = np.array(token_ids)
-        token_ids = np.where(arr >= self.vocab_len, arr - self.vocab_len, arr).tolist()
-        return super()._decode(token_ids, **kwargs)
+        return ans
+    
     
 def get_mix_tokenizer(tokenizer_cls, dir_name="mix"):
     class_name = f"MixTokenizer"
