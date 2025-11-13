@@ -9,51 +9,39 @@
 
 namespace py = pybind11;
 
-
 class HybridDecoder {
 public:
     size_t k;
     uint64_t base1 = 257, mod1 = 1000000007;
     uint64_t base2 = 263, mod2 = 1000000009;
 
-    std::unordered_set<uint64_t> map1;
-    std::unordered_set<uint64_t> map2;
+    std::unordered_map<uint64_t, std::unordered_map<uint64_t, int>> values;
 
-    HybridDecoder(size_t k_, const std::vector<std::vector<int>>& exist_seq) : k(k_) {
-        for (const auto& seq : exist_seq) {
-            if (seq.size() != k) continue;
-            uint64_t h1 = 0, h2 = 0;
-            for (size_t i = 0; i < k; ++i) {
-                h1 = (h1 * base1 + seq[i]) % mod1;
-                h2 = (h2 * base2 + seq[i]) % mod2;
-            }
-            map1.insert(h1);
-            map2.insert(h2);
-            // if (seq == std::vector<int>({186, 195})) {
-            //     printf("Inserted special seq {186, 195} with h1=%llu, h2=%llu\n", h1, h2);
-            // }
+    HybridDecoder(size_t k_) : k(k_) {}
+
+    void add_pattern(const std::vector<int>& seq, int val) {
+        if (seq.size() != k) return;
+
+        uint64_t h1 = 0, h2 = 0;
+        for (size_t i = 0; i < k; ++i) {
+            h1 = (h1 * base1 + seq[i]) % mod1;
+            h2 = (h2 * base2 + seq[i]) % mod2;
         }
+        values[h1][h2] = val;
     }
 
-    std::vector<std::vector<size_t>> decode(const std::vector<int>& nums, bool strict=false) const {
-        std::vector<std::vector<size_t>> intervals;
+    std::vector<std::tuple<int,size_t,size_t>> search(const std::vector<int>& nums) const {
         size_t n = nums.size();
-        if (n == 0) return intervals;
-
-        if (n < k) {
-            // everything is considered non-flag (0), covering [0, n)
-            intervals.push_back({0, 0, n});
-            return intervals;
-        }
+        std::vector<std::tuple<int,size_t,size_t>> intervals;
+        if (n < k) return {{-1, 0, n}};
 
         uint64_t h1 = 0, h2 = 0;
         uint64_t base_pow1 = 1, base_pow2 = 1;
-
-        for (size_t i = 0; i < k - 1 && i < n; ++i) {
+        for (size_t i = 0; i < k-1; ++i) {
             base_pow1 = (base_pow1 * base1) % mod1;
             base_pow2 = (base_pow2 * base2) % mod2;
         }
-        
+
         size_t work = 0;
         for (size_t i = 0; i <= n - k; ++i) {
             if (i == 0) {
@@ -62,82 +50,65 @@ public:
                     h2 = (h2 * base2 + nums[j]) % mod2;
                 }
             } else {
-                h1 = (h1 + mod1 - (nums[i - 1] * base_pow1) % mod1) % mod1;
-                h1 = (h1 * base1 + nums[i + k - 1]) % mod1;
- 
-                h2 = (h2 + mod2 - (nums[i - 1] * base_pow2) % mod2) % mod2;
-                h2 = (h2 * base2 + nums[i + k - 1]) % mod2;
+                h1 = (h1 + mod1 - (nums[i-1] * base_pow1) % mod1) % mod1;
+                h1 = (h1 * base1 + nums[i+k-1]) % mod1;
+
+                h2 = (h2 + mod2 - (nums[i-1] * base_pow2) % mod2) % mod2;
+                h2 = (h2 * base2 + nums[i+k-1]) % mod2;
             }
-            if (i < work) continue;
-            bool flag = map1.count(h1) && map2.count(h2);
-            // printf("At position %zu: h1=%llu, h2=%llu, flag=%d list=%d, %d map1.count=%zu, map2.count=%zu\n", i, h1, h2, flag, nums[i], nums[i+1], map1.count(h1), map2.count(h2));
-            if (intervals.empty()) {
-                if (flag) intervals.push_back({1, i, i + k}), work = i + k;
-                else {
-                    intervals.push_back({0, i, i + 1}), work = i + 1;
-                }
-            } else {
-                auto& last = intervals.back();
-                if (last[0] == size_t(flag)) {
-                    if (flag) last[2] = i + k, work = i + k;
-                    else last[2] = i + 1, work = i + 1;
-                } else {
-                    if (flag) intervals.push_back({1, i, i + k}), work = i + k;
-                    else {
-                        if (last[2] - last[1] > k || !strict) {
-                            intervals.push_back({0, i, i + 1});
-                        } else {
-                            last[0] = 0, last[2] = i + 1;
-                        }
-                        work = i + 1;
-                    }
-                }
+
+            int flag = -1;
+            auto it1 = values.find(h1);
+            if (it1 != values.end()) {
+                auto it2 = it1->second.find(h2);
+                if (it2 != it1->second.end()) flag = it2->second;
+            }
+
+            if (flag != -1) {
+                intervals.push_back({flag, i, i+k});
+                work = i+k;
             }
         }
 
-        // Handle remaining tokens
-        size_t processed = 0;
-        if (!intervals.empty()) {
-            processed = intervals.back()[2];
+        size_t last_end = 0;
+        std::vector<std::tuple<int,size_t,size_t>> result;
+        for (auto& inter : intervals) {
+            auto [flag,l,r] = inter;
+            if (last_end < l) result.push_back({-1,last_end,l});
+            result.push_back(inter);
+            last_end = r;
         }
-        for (size_t i = processed; i < n; ++i) {
-            auto& last = intervals.back();
-            if (last[0] == 0) {
-                last[2] = i + 1;
-            } else {
-                intervals.push_back({0, i, i + 1});
-            }
-        }
+        if (last_end < n) result.push_back({-1,last_end,n});
 
-        return intervals;
+        return result;
     }
 
+    // -------------------- pickle 支持 --------------------
     py::tuple __getstate__() const {
-        std::vector<uint64_t> keys1(map1.begin(), map1.end());
-        std::vector<uint64_t> keys2(map2.begin(), map2.end());
-        return py::make_tuple(k, keys1, keys2);
+        std::vector<std::tuple<uint64_t,uint64_t,int>> val_vec;
+        for (const auto& [h1, sub_map] : values) {
+            for (const auto& [h2, v] : sub_map) {
+                val_vec.emplace_back(h1, h2, v);
+            }
+        }
+        return py::make_tuple(k, val_vec);
     }
 
     static HybridDecoder __setstate__(py::tuple t) {
-        if (t.size() != 3) throw std::runtime_error("Invalid state!");
         size_t k_ = t[0].cast<size_t>();
-        std::vector<uint64_t> keys1 = t[1].cast<std::vector<uint64_t>>();
-        std::vector<uint64_t> keys2 = t[2].cast<std::vector<uint64_t>>();
-        HybridDecoder dec(k_, {});
-        dec.map1.insert(keys1.begin(), keys1.end());
-        dec.map2.insert(keys2.begin(), keys2.end());
+        auto val_vec = t[1].cast<std::vector<std::tuple<uint64_t,uint64_t,int>>>();
+        HybridDecoder dec(k_);
+        for (const auto& item : val_vec) {
+            uint64_t h1 = std::get<0>(item);
+            uint64_t h2 = std::get<1>(item);
+            int v = std::get<2>(item);
+            dec.values[h1][h2] = v;
+        }
         return dec;
     }
 };
 
 
-// struct ACNode {
-//     std::unordered_map<int, ACNode*> children;
-//     ACNode* fail = nullptr;
-//     ACNode* link = nullptr; // jump fail link to next output node 
-//     int value = -1; // -1 non-leaf
-//     int depth = 0;
-// };
 
 class ACAutomaton {
 public:
@@ -207,7 +178,7 @@ public:
             }
             if (node && node->children.count(x))
                 node = node->children[x];
-            // printf("At text index %zu, char=%d, current node uuid=%d, value=%d\n", i, x, node->uuid, node->value);
+            // printf("At text index %zu, char=%d, current node uuid=%d, value=%d, is_root=%d, depth=%zu, fail=%d\n", i, x, node->uuid, node->value, node == root, node->depth, node->fail != nullptr ? node->fail->value : -1);
             ACNode* tmp = node;
             // if (tmp && tmp->link) tmp = tmp->link;
             while (tmp != root && tmp != nullptr) {
@@ -216,9 +187,10 @@ public:
                     size_t start = i + 1 - tmp->depth;
                     if (last_pos < start) {
                         results.emplace_back(-1, last_pos, start);
-                        
+                        // printf("Added non-match interval [%zu, %zu) before match at index %zu\n", last_pos, start, i);
                     }
                     results.emplace_back(tmp->end_value, start, i + 1);
+                    // printf("Now info of node at index %zu: uuid=%d, value=%d, depth=%zu, end_value=%d\n", i, tmp->uuid, tmp->value, tmp->depth, tmp->end_value);
                     last_pos = i + 1;
                     node = root;
                     break; 
@@ -309,8 +281,10 @@ public:
         }
 
         size_t idx = 0;
+        root = nodes[0];
         for (auto& child_keys : children) {
             ACNode* parent = nodes[idx++];
+            parent->fail = root; // 初始化 fail 指针
             // printf("now deserializing node uuid=%d, value=%d, depth=%zu, end_value=%d\n", parent->uuid, parent->value, parent->depth, parent->end_value);
             for (int key : child_keys) {
                 ACNode* child = nodes[key];
@@ -321,7 +295,6 @@ public:
             }
         }
 
-        root = nodes[0];
     }
 };
 
@@ -330,23 +303,17 @@ public:
 
 
 PYBIND11_MODULE(decode, m) {
-    py::class_<HybridDecoder, std::shared_ptr<HybridDecoder>>(m, "HybridDecoder")
-        .def(py::init<size_t, const std::vector<std::vector<int>>&>())
-        .def("decode", &HybridDecoder::decode, py::arg("nums"), py::arg("strict") = false)
+    py::class_<HybridDecoder>(m, "HybridDecoder")
+        .def(py::init<size_t>(), py::arg("k"))
+        .def("add_pattern", &HybridDecoder::add_pattern)
+        .def("search", &HybridDecoder::search)
         .def(py::pickle(
-            [](const HybridDecoder &self) {
-                std::vector<uint64_t> keys1(self.map1.begin(), self.map1.end());
-                std::vector<uint64_t> keys2(self.map2.begin(), self.map2.end());
-                return py::make_tuple(self.k, keys1, keys2);
+            [](const HybridDecoder& self) {
+                return self.__getstate__();
             },
             [](py::tuple t) {
-                size_t k_ = t[0].cast<size_t>();
-                std::vector<uint64_t> keys1 = t[1].cast<std::vector<uint64_t>>();
-                std::vector<uint64_t> keys2 = t[2].cast<std::vector<uint64_t>>();
-                auto dec = std::make_shared<HybridDecoder>(k_, std::vector<std::vector<int>>{});
-                dec->map1.insert(keys1.begin(), keys1.end());
-                dec->map2.insert(keys2.begin(), keys2.end());
-                return dec; 
+                auto hd = new HybridDecoder(HybridDecoder::__setstate__(t));
+                return hd;
             }
         ));
     py::class_<ACAutomaton>(m, "ACAutomaton")
