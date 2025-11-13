@@ -1,7 +1,7 @@
-import os
 import time
 import pytest
-import random
+import sys
+import platform
 
 from transformers import AutoTokenizer
 from datasets import Dataset
@@ -46,7 +46,14 @@ def test_tokenizer_speed(tokenizers, sample_text):
 def test_decoder_consistency(tokenizers, sample_text):
     tok1, tok2 = tokenizers
     tokens1 = tok1([sample_text], return_tensors="pt")["input_ids"][0].tolist()
+    
+    start = time.perf_counter()
     decoded = tok1.decode(tokens1, map_back=False)
+    end = time.perf_counter()
+    decode_time = end - start
+    print(f"Tokenizer1 decode {len(tokens1)} tokens in {decode_time:.4f}s "
+          f"({len(tokens1) / decode_time:.2f} tokens/s)")
+    
     assert decoded == sample_text
     print("Decoder consistency test passed.")
 
@@ -67,15 +74,17 @@ def test_pickle_serialization(tokenizers):
     print("Pickle serialization test passed.")
 
 
-def test_dataset_map(tokenizers, sample_text):
-    tok1, _ = tokenizers
-    texts = [sample_text[:1000] for _ in range(5)]
-    ds = Dataset.from_dict({"text": texts})
+if __name__ == "__main__":
 
-    def tokenize_batch(batch):
-        return {"tonize": [tok1.tokenize(t) for t in batch["text"]]}
+    def test_dataset_map(tokenizers, sample_text):
+        tok1, _ = tokenizers
+        texts = [sample_text[:1000] for _ in range(5)]
+        ds = Dataset.from_dict({"text": texts})
 
-    mapped_ds = ds.map(tokenize_batch, batched=True, load_from_cache_file=False, cache_file_name=None,num_proc=2)
-    for item in mapped_ds:
-        assert len(item["tonize"]) > 0
-    print("Dataset map test passed.")
+        def tokenize_batch(batch):
+            return {"tonize": [tok1.tokenize(t) for t in batch["text"]]}
+
+        mapped_ds = ds.map(tokenize_batch, batched=True, load_from_cache_file=False, cache_file_name=None,num_proc=1 if platform.system() == "Windows" else 2)
+        for item in mapped_ds:
+            assert len(item["tonize"]) > 0
+        print("Dataset map test passed.")

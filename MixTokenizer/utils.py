@@ -36,7 +36,7 @@ class MixTokenizerBase:
 
         instance.map_code = dict()
         instance.map_char = dict()
-        instance.extra_length = 2
+        instance.extra_length = 1
         for ch in tqdm(ZH_CHARS | EXTRA_ZH_CHARS, desc="Building HybridDecoder"):
             if isinstance(ch, int):
                 ch = chr(ch)  
@@ -69,15 +69,21 @@ class MixTokenizerBase:
         """Tokenize a string."""
         bpe_tokens = []
         for token in re.findall(self.pat, text):
-            ret = ""
+            ret = []
             for flag, l, r in self.splitter.py_split_zh_nonzh(token):
-                t = ""
-                for ch in token[l:r]:
-                    add = "" if not flag else self.map_char[ch]
-                    t += add + "".join(self.byte_encoder[b] for b in ch.encode("utf-8" if not flag else "gb2312"))
-                ret += t
+                if not flag:
+                    t = "" .join(self.byte_encoder[b] for b in token[l:r].encode("utf-8"))
+                else:
+                    parts = []
+                    for ch in token[l:r]:
+                        enc = ch.encode("gb2312", errors="ignore")
+                        parts.append(self.map_char[ch])
+                        parts.extend(self.byte_encoder[b] for b in enc)
+                    t = "".join(parts)
+                ret.append(t)
                 # print(f"segment: {token[l:r]}, is_zh: {flag}, {t}, len={len(t)}")
             # print(f"token after byte encoding: {ret}")
+            ret = "".join(ret)
             bpe_tokens.extend(bpe_token for bpe_token in self.bpe(ret).split(" "))
         return bpe_tokens
 

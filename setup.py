@@ -3,16 +3,16 @@ import pybind11
 
 ext_modules = [
     Extension(
-        "Mixtokenizer.core.decode",
-        sources=["Mixtokenizer/core/decode.cpp"],
-        include_dirs=[pybind11.get_include(), "Mixtokenizer/core"],
+        "MixTokenizer.core.decode",
+        sources=["MixTokenizer/core/decode.cpp"],
+        include_dirs=[pybind11.get_include(), "MixTokenizer/core"],
         language="c++",
         extra_compile_args=["-std=c++17"],
     ),
     Extension(
-        "Mixtokenizer.core.utils",
-        sources=["Mixtokenizer/core/utils.cpp"],
-        include_dirs=[pybind11.get_include(), "Mixtokenizer/core"],
+        "MixTokenizer.core.utils",
+        sources=["MixTokenizer/core/utils.cpp"],
+        include_dirs=[pybind11.get_include(), "MixTokenizer/core"],
         language="c++",
         extra_compile_args=["-std=c++17"],  
     )
