@@ -71,16 +71,18 @@ public:
     }
 
     // 序列化
-    std::vector<char32_t> get_state() const {
-        return std::vector<char32_t>(zh_chars_.begin(), zh_chars_.end());
+    std::vector<uint32_t> get_state() const {
+        std::vector<uint32_t> state;
+        for (auto c : zh_chars_) state.push_back(static_cast<uint32_t>(c));
+        return state;
     }
 
-    void set_state(const std::vector<char32_t>& state) {
+    void set_state(const std::vector<uint32_t>& state) {
         zh_chars_.clear();
-        for (auto c : state) zh_chars_.insert(c);
+        for (auto c : state) zh_chars_.insert(static_cast<char32_t>(c));
     }
 
-private:
+public:
     std::unordered_set<char32_t> zh_chars_;
 };
 
@@ -90,15 +92,26 @@ PYBIND11_MODULE(utils, m) {
         .def(py::init([](py::sequence seq){
             std::vector<char32_t> vec;
             for (auto item : seq) {
-                uint32_t val = item.cast<uint32_t>();  // 先 cast 到 uint32_t
-                vec.push_back(static_cast<char32_t>(val)); // 
+                uint32_t val = item.cast<uint32_t>();
+                vec.push_back(static_cast<char32_t>(val));
             }
             return new ChineseSplitter(vec);
         }))
         .def("is_chinese_char", &ChineseSplitter::is_chinese_char)
         .def("split_zh_nonzh", &ChineseSplitter::split_zh_nonzh)
         .def("py_split_zh_nonzh", &ChineseSplitter::py_split_zh_nonzh)
-        // 支持 pickle
-        .def("__getstate__", &ChineseSplitter::get_state)
-        .def("__setstate__", &ChineseSplitter::set_state);
+        .def(py::pickle(
+            // __getstate__
+            [](const ChineseSplitter &self) {
+                std::vector<uint32_t> chars(self.zh_chars_.begin(), self.zh_chars_.end());
+                return py::make_tuple(chars);
+            },
+            // __setstate__
+            [](py::tuple t) {
+                std::vector<uint32_t> chars = t[0].cast<std::vector<uint32_t>>();
+                ChineseSplitter splitter;   // 注意：对象本身
+                splitter.set_state(chars);
+                return splitter;            // 返回对象本身，不是 shared_ptr
+            }
+        ));
 }

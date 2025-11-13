@@ -128,25 +128,23 @@ public:
 };
 
 PYBIND11_MODULE(decode, m) {
-    py::class_<HybridDecoder>(m, "HybridDecoder")
+    py::class_<HybridDecoder, std::shared_ptr<HybridDecoder>>(m, "HybridDecoder")
         .def(py::init<size_t, const std::vector<std::vector<int>>&>())
         .def("decode", &HybridDecoder::decode, py::arg("nums"), py::arg("strict") = false)
         .def(py::pickle(
-            [](const HybridDecoder &self) { // __getstate__
+            [](const HybridDecoder &self) {
                 std::vector<uint64_t> keys1(self.map1.begin(), self.map1.end());
                 std::vector<uint64_t> keys2(self.map2.begin(), self.map2.end());
                 return py::make_tuple(self.k, keys1, keys2);
             },
-            [](py::tuple t) { // __setstate__
-                if (t.size() != 3)
-                    throw std::runtime_error("Invalid state!");
+            [](py::tuple t) {
                 size_t k_ = t[0].cast<size_t>();
                 std::vector<uint64_t> keys1 = t[1].cast<std::vector<uint64_t>>();
                 std::vector<uint64_t> keys2 = t[2].cast<std::vector<uint64_t>>();
-                auto dec = new HybridDecoder(k_, {});
+                auto dec = std::make_shared<HybridDecoder>(k_, std::vector<std::vector<int>>{});
                 dec->map1.insert(keys1.begin(), keys1.end());
                 dec->map2.insert(keys2.begin(), keys2.end());
-                return dec; 
+                return dec;  // 返回 shared_ptr
             }
         ));
 }

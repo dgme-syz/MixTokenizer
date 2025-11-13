@@ -52,6 +52,8 @@ def test_decoder_consistency(tokenizers, sample_text):
 
 
 def test_pickle_serialization(tokenizers):
+    import os
+    os.environ["DISABLE_TQDM_MONITOR"] = "1"
     tok1, _ = tokenizers
     with tempfile.TemporaryDirectory() as tmpdir:
         pkl_path = os.path.join(tmpdir, "tok.pkl")
@@ -73,7 +75,7 @@ def test_dataset_map(tokenizers, sample_text):
     def tokenize_batch(batch):
         return {"tonize": [tok1.tokenize(t) for t in batch["text"]]}
 
-    mapped_ds = ds.map(tokenize_batch, batched=True, load_from_cache_file=False, cache_file_name=None,)
+    mapped_ds = ds.map(tokenize_batch, batched=True, load_from_cache_file=False, cache_file_name=None,num_proc=2)
     for item in mapped_ds:
         assert len(item["tonize"]) > 0
     print("Dataset map test passed.")

@@ -109,6 +109,12 @@ class MixTokenizerBase:
             result_parts.append(decoded_bytes.decode(utf8 if not flag else gb, errors=errors))
 
         return "".join(result_parts)
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
     
     
 def get_mix_tokenizer(tokenizer_cls, dir_name="mix"):
