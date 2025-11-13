@@ -1,7 +1,6 @@
 import regex as re
-from typing import List, Union
+import random
 
-import numpy as np
 from tqdm import tqdm
 
 from MixTokenizer.core.utils import ChineseSplitter
@@ -29,22 +28,35 @@ class MixTokenizerBase:
         instance = super().from_pretrained(pretrained_model_name_or_path, **kwargs)
         
         temp_list = []
+        # for x, y in instance.byte_encoder.items():
+        #     print(f"Byte encoder: {x} -> {ord(y)}")
+
         ZH_CHARS = {chr(i) for i in range(ZH_RANGE[0], ZH_RANGE[1] + 1)}
         ZH_USED_CHARS = set()
+
+        instance.map_code = dict()
+        instance.map_char = dict()
+        instance.extra_length = 2
         for ch in tqdm(ZH_CHARS | EXTRA_ZH_CHARS, desc="Building HybridDecoder"):
             if isinstance(ch, int):
                 ch = chr(ch)  
             try:
                 bytes_seq = ch.encode("gb2312")
             except:
-                print(f"[WARN] cannot encode char {ch} in gb2312")
+                # print(f"[WARN] cannot encode char {ch} in gb2312")
                 continue
             
             if len(bytes_seq) != 2:
                 assert False, f"Expected 2 bytes for gb2312 encoding of {ch}, got {len(bytes_seq)} bytes."
+
+            if ch in ZH_USED_CHARS:
+                continue
             ZH_USED_CHARS.add(ch if isinstance(ch, int) else ord(ch))
-            temp_list.append([ord(instance.byte_encoder[x]) for x in bytes_seq])
-        instance.mix_decoder = HybridDecoder(2, temp_list)
+            instance.map_char[ch] = "".join([random.choice(list(instance.byte_encoder.values())) for _ in range(instance.extra_length)])
+            instance.map_code[ch] = [ord(x) for x in instance.map_char[ch]]
+
+            temp_list.append(instance.map_code[ch] + [ord(instance.byte_encoder[x]) for x in bytes_seq])
+        instance.mix_decoder = HybridDecoder(2 + instance.extra_length, temp_list)
         instance.splitter = ChineseSplitter(list(ZH_USED_CHARS))
         print(
             f"[INFO] current length = {len(instance)}\n"
@@ -59,28 +71,44 @@ class MixTokenizerBase:
         for token in re.findall(self.pat, text):
             ret = ""
             for flag, l, r in self.splitter.py_split_zh_nonzh(token):
-                t = "".join(
-                    self.byte_encoder[b] for b in token[l:r].encode("utf-8" if not flag else "gb2312")
-                )
+                t = ""
+                for ch in token[l:r]:
+                    add = "" if not flag else self.map_char[ch]
+                    t += add + "".join(self.byte_encoder[b] for b in ch.encode("utf-8" if not flag else "gb2312"))
                 ret += t
-                print(f"segment: {token[l:r]}, is_zh: {flag}, {t}, len={len(t)}")
+                # print(f"segment: {token[l:r]}, is_zh: {flag}, {t}, len={len(t)}")
             # print(f"token after byte encoding: {ret}")
             bpe_tokens.extend(bpe_token for bpe_token in self.bpe(ret).split(" "))
         return bpe_tokens
 
-    def convert_tokens_to_string(self, tokens):
-        """Converts a sequence of tokens (string) in a single string."""
-        tokens = [x  for x in "".join(tokens)]
-        intervals = self.mix_decoder.decode([ord(x) for x in tokens], strict=False)
-        ans = ""
-        for flag, l, r in intervals:
-            temp = bytearray(
-                [self.byte_decoder[c] for c in "".join(tokens[l:r])]
-            ).decode("utf-8" if not flag else "gb2312", errors=self.errors)
-            ans += temp
-            print(f"Decode segment: {tokens[l:r]}, is_zh: {flag}, l={l}, r={r} -> {temp}")
+    def convert_tokens_to_string(self, tokens: list[str]) -> str:
+        """Convert a sequence of tokens into a decoded string (optimized)."""
 
-        return ans
+        # join to one string (no need to split again)
+        tokens_str = "".join(tokens)
+        ords = [ord(ch) for ch in tokens_str]
+        intervals = self.mix_decoder.decode(ords, strict=False)
+
+        byte_decoder = self.byte_decoder  # local variable for speed
+        errors = self.errors
+        extra_len = self.extra_length
+        utf8 = "utf-8"
+        gb = "gb2312"
+
+        result_parts = []
+
+        for flag, l, r in intervals:
+            segment = tokens_str[l:r]
+            if flag and extra_len:
+                # filter extra marker bytes
+                segment = "".join(
+                    x for i, x in enumerate(segment) if i % (2 + extra_len) >= extra_len
+                )
+
+            decoded_bytes = bytearray(byte_decoder[ch] for ch in segment)
+            result_parts.append(decoded_bytes.decode(utf8 if not flag else gb, errors=errors))
+
+        return "".join(result_parts)
     
     
 def get_mix_tokenizer(tokenizer_cls, dir_name="mix"):

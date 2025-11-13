@@ -37,6 +37,12 @@ public:
         size_t n = nums.size();
         if (n == 0) return intervals;
 
+        if (n < k) {
+            // everything is considered non-flag (0), covering [0, n)
+            intervals.push_back({0, 0, n});
+            return intervals;
+        }
+
         uint64_t h1 = 0, h2 = 0;
         uint64_t base_pow1 = 1, base_pow2 = 1;
 
@@ -137,10 +143,10 @@ PYBIND11_MODULE(decode, m) {
                 size_t k_ = t[0].cast<size_t>();
                 std::vector<uint64_t> keys1 = t[1].cast<std::vector<uint64_t>>();
                 std::vector<uint64_t> keys2 = t[2].cast<std::vector<uint64_t>>();
-                HybridDecoder dec(k_, {});
-                dec.map1.insert(keys1.begin(), keys1.end());
-                dec.map2.insert(keys2.begin(), keys2.end());
-                return dec;
+                auto dec = new HybridDecoder(k_, {});
+                dec->map1.insert(keys1.begin(), keys1.end());
+                dec->map2.insert(keys2.begin(), keys2.end());
+                return dec; 
             }
         ));
 }
