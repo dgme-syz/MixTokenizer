@@ -1,6 +1,5 @@
 import time
 import pytest
-import sys
 import platform
 
 from transformers import AutoTokenizer

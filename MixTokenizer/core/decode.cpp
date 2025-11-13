@@ -3,6 +3,9 @@
 #include <cstdint>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <queue>
+#include <unordered_map>
+#include <tuple>
 
 namespace py = pybind11;
 
@@ -127,6 +130,205 @@ public:
     }
 };
 
+
+// struct ACNode {
+//     std::unordered_map<int, ACNode*> children;
+//     ACNode* fail = nullptr;
+//     ACNode* link = nullptr; // jump fail link to next output node 
+//     int value = -1; // -1 non-leaf
+//     int depth = 0;
+// };
+
+class ACAutomaton {
+public:
+    int idx = 0;
+    ACAutomaton() {
+        root = new ACNode();
+        root->uuid = 0;
+    }
+
+    ~ACAutomaton() {
+        clear(root);
+    }
+
+    void add_pattern(const std::vector<int>& pattern, int val) {
+        ACNode* node = root;
+        for (int x : pattern) {
+            if (!node->children.count(x)) {
+                node->children[x] = new ACNode();
+                node->children[x]->uuid = ++idx;
+                node->children[x]->depth = node->depth + 1;
+                node->children[x]->value = x;
+                node->children[x]->fail = root;
+            }
+            node = node->children[x];
+        }
+        node->end_value = val;
+    }
+
+    void build() {
+        std::queue<ACNode*> q;
+        root->fail = root;
+        for (auto& [k, child] : root->children) {
+            child->fail = root;
+            q.push(child);
+        }
+
+        while (!q.empty()) {
+            ACNode* node = q.front(); q.pop();
+            assert (node->fail != nullptr);
+            for (auto& [k, child] : node->children) {
+                ACNode* f = node->fail;
+                while (f != root && !f->children.count(k))
+                    f = f->fail;
+                if (f->children.count(k))
+                    f = f->children[k];
+                child->fail = f;
+                q.push(child);
+            }
+        }
+    }
+
+    std::vector<std::tuple<int, size_t, size_t>> search(const std::vector<int>& text) {
+        std::vector<std::tuple<int, size_t, size_t>> results;
+        size_t n = text.size();
+        size_t last_pos = 0;
+        ACNode* node = root;
+
+        for (size_t i = 0; i < n; ++i) {
+            int x = text[i];
+            while (node != root && !node->children.count(x)) {
+                if (node->fail == nullptr) {
+                    printf("Warning: node fail is null while processing char %d at index %zu\n", x, i);
+                    printf("Node: uuid=%d, value=%d\n", node->uuid, node->value);
+                    assert (false); // should not happen
+                }
+                node = node->fail;
+            }
+            if (node && node->children.count(x))
+                node = node->children[x];
+            // printf("At text index %zu, char=%d, current node uuid=%d, value=%d\n", i, x, node->uuid, node->value);
+            ACNode* tmp = node;
+            // if (tmp && tmp->link) tmp = tmp->link;
+            while (tmp != root && tmp != nullptr) {
+                if (tmp->end_value != -1) {
+                    node->link = tmp;
+                    size_t start = i + 1 - tmp->depth;
+                    if (last_pos < start) {
+                        results.emplace_back(-1, last_pos, start);
+                        
+                    }
+                    results.emplace_back(tmp->end_value, start, i + 1);
+                    last_pos = i + 1;
+                    node = root;
+                    break; 
+                }
+                tmp = tmp->fail;
+            }
+            // printf("After processing char %d at index %zu, last_pos=%zu node is null=%d\n", x, i, last_pos, node == nullptr);
+        }
+
+        if (last_pos < n)
+            results.emplace_back(-1, last_pos, n);
+
+        return results;
+    }
+
+    // ===== pickle 支持 =====
+    py::tuple __getstate__() const {
+        std::vector<int> keys;
+        std::vector<int> values;
+        std::vector<int> end_values;  // 序列化 end_value
+        std::vector<std::vector<int>> children;
+        serialize_node(root, keys, values, end_values, children);
+        return py::make_tuple(keys, values, end_values, children, idx);
+    }
+
+    void __setstate__(py::tuple t) {
+        auto keys = t[0].cast<std::vector<int>>(); 
+        auto values = t[1].cast<std::vector<int>>(); 
+        auto end_values = t[2].cast<std::vector<int>>(); 
+        auto children = t[3].cast<std::vector<std::vector<int>>>();
+        auto idx_ = t[4].cast<int>();
+        deserialize_node(keys, values, end_values, children);
+        idx = idx_;
+        build();
+    }
+
+    struct ACNode {
+        std::unordered_map<int, ACNode*> children;
+        ACNode* fail = nullptr;
+        ACNode* link = nullptr;
+        int value = -1, uuid = 0, end_value = -1;
+        size_t depth = 0;
+    };
+
+    ACNode* root;
+
+    void clear(ACNode* node) {
+        for (auto& [k, child] : node->children)
+            clear(child);
+        delete node;
+    }
+
+    // ===== 序列化/反序列化节点 =====
+    void serialize_node(ACNode* node, std::vector<int>& keys, std::vector<int>& values, std::vector<int>& end_values, std::vector<std::vector<int>>& children) const {
+        if (keys.size() < node->uuid + 1) {
+            keys.resize(node->uuid + 1);
+            values.resize(node->uuid + 1);
+            end_values.resize(node->uuid + 1);  // 为 end_value 分配空间
+            children.resize(node->uuid + 1);
+        }
+        keys[node->uuid] = node->value;
+        values[node->uuid] = static_cast<int>(node->depth);
+        end_values[node->uuid] = node->end_value;  // 序列化 end_value
+
+        // printf("now serializing node uuid=%d, value=%d, depth=%zu, end_value=%d\n", node->uuid, node->value, node->depth, node->end_value);
+        std::vector<int> child_keys;
+        for (auto& [k, child] : node->children) {
+            assert(k == child->value);
+            // printf("Serializing parent uuid=%d to child uuid=%d, from %d to %d\n", node->uuid, child->uuid, node->value, child->value);
+            child_keys.push_back(child->uuid);
+        }
+        children[node->uuid] = child_keys;
+
+        for (auto& [k, child] : node->children) {
+            serialize_node(child, keys, values, end_values, children);
+        }
+    }
+
+    void deserialize_node(const std::vector<int>& keys, const std::vector<int>& values, const std::vector<int>& end_values, const std::vector<std::vector<int>>& children) {
+        std::vector<ACNode*> nodes(keys.size(), nullptr);
+        for (size_t i = 0; i < keys.size(); ++i) {
+            ACNode* node = new ACNode();
+            node->value = keys[i];
+            node->depth = values[i];
+            node->end_value = end_values[i];  // 反序列化 end_value
+            nodes[i] = node;
+            node->uuid = i;
+        }
+
+        size_t idx = 0;
+        for (auto& child_keys : children) {
+            ACNode* parent = nodes[idx++];
+            // printf("now deserializing node uuid=%d, value=%d, depth=%zu, end_value=%d\n", parent->uuid, parent->value, parent->depth, parent->end_value);
+            for (int key : child_keys) {
+                ACNode* child = nodes[key];
+                if (child) {
+                    // printf("Linking parent uuid=%d to child uuid=%d, from %d to %d\n", parent->uuid, child->uuid, parent->value, child->value);
+                    parent->children[child->value] = child;
+                }
+            }
+        }
+
+        root = nodes[0];
+    }
+};
+
+
+
+
+
 PYBIND11_MODULE(decode, m) {
     py::class_<HybridDecoder, std::shared_ptr<HybridDecoder>>(m, "HybridDecoder")
         .def(py::init<size_t, const std::vector<std::vector<int>>&>())
@@ -144,7 +346,22 @@ PYBIND11_MODULE(decode, m) {
                 auto dec = std::make_shared<HybridDecoder>(k_, std::vector<std::vector<int>>{});
                 dec->map1.insert(keys1.begin(), keys1.end());
                 dec->map2.insert(keys2.begin(), keys2.end());
-                return dec;  // 返回 shared_ptr
+                return dec; 
+            }
+        ));
+    py::class_<ACAutomaton>(m, "ACAutomaton")
+        .def(py::init<>())
+        .def("add_pattern", &ACAutomaton::add_pattern)
+        .def("build", &ACAutomaton::build)
+        .def("search", &ACAutomaton::search)
+        .def(py::pickle(
+            [](const ACAutomaton& self) {
+                return self.__getstate__();
+            },
+            [](py::tuple t) {
+                auto ac = new ACAutomaton();
+                ac->__setstate__(t);
+                return ac;
             }
         ));
 }

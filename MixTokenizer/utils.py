@@ -4,7 +4,7 @@ import random
 from tqdm import tqdm
 
 from MixTokenizer.core.utils import ChineseSplitter
-from MixTokenizer.core.decode import HybridDecoder
+from MixTokenizer.core.decode import HybridDecoder, ACAutomaton
 
 ZH_RANGE = (0x4E00, 0x9FFF)
 
@@ -27,16 +27,17 @@ class MixTokenizerBase:
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
         instance = super().from_pretrained(pretrained_model_name_or_path, **kwargs)
         
-        temp_list = []
-        # for x, y in instance.byte_encoder.items():
-        #     print(f"Byte encoder: {x} -> {ord(y)}")
 
         ZH_CHARS = {chr(i) for i in range(ZH_RANGE[0], ZH_RANGE[1] + 1)}
         ZH_USED_CHARS = set()
 
         instance.map_code = dict()
         instance.map_char = dict()
-        instance.extra_length = 1
+        instance.extra_length = 4
+
+        temp_list = []
+        temp_ch = []
+        random.seed(42)
         for ch in tqdm(ZH_CHARS | EXTRA_ZH_CHARS, desc="Building HybridDecoder"):
             if isinstance(ch, int):
                 ch = chr(ch)  
@@ -56,7 +57,18 @@ class MixTokenizerBase:
             instance.map_code[ch] = [ord(x) for x in instance.map_char[ch]]
 
             temp_list.append(instance.map_code[ch] + [ord(instance.byte_encoder[x]) for x in bytes_seq])
-        instance.mix_decoder = HybridDecoder(2 + instance.extra_length, temp_list)
+            temp_ch.append(ch)
+
+        instance.use_ac = instance.use_ac or not all(len(x) == len(temp_list[0]) for x in temp_list)
+        # instance.use_ac = False
+        if not instance.use_ac:
+            instance.mix_decoder = HybridDecoder(2 + instance.extra_length, temp_list)
+        else:
+            # use ac automaton for variable length patterns
+            print("[INFO] Using AC Automaton for variable-length patterns in MixTokenizer.")
+            instance.mix_decoder = ACAutomaton()
+            for pattern, ch in zip(temp_list, temp_ch):
+                instance.mix_decoder.add_pattern(pattern, ord(ch))
         instance.splitter = ChineseSplitter(list(ZH_USED_CHARS))
         print(
             f"[INFO] current length = {len(instance)}\n"
@@ -93,27 +105,41 @@ class MixTokenizerBase:
         # join to one string (no need to split again)
         tokens_str = "".join(tokens)
         ords = [ord(ch) for ch in tokens_str]
-        intervals = self.mix_decoder.decode(ords, strict=False)
 
         byte_decoder = self.byte_decoder  # local variable for speed
         errors = self.errors
-        extra_len = self.extra_length
+        
         utf8 = "utf-8"
         gb = "gb2312"
 
         result_parts = []
 
-        for flag, l, r in intervals:
-            segment = tokens_str[l:r]
-            if flag and extra_len:
-                # filter extra marker bytes
-                segment = "".join(
-                    x for i, x in enumerate(segment) if i % (2 + extra_len) >= extra_len
-                )
+        if not self.use_ac:
+            intervals = self.mix_decoder.decode(ords, strict=False)
+            extra_len = self.extra_length
+            for flag, l, r in intervals:
+                segment = tokens_str[l:r]
+                if flag and extra_len:
+                    # filter extra marker bytes
+                    segment = "".join(
+                        x for i, x in enumerate(segment) if i % (2 + extra_len) >= extra_len
+                    )
 
-            decoded_bytes = bytearray(byte_decoder[ch] for ch in segment)
-            result_parts.append(decoded_bytes.decode(utf8 if not flag else gb, errors=errors))
-
+                decoded_bytes = bytearray(byte_decoder[ch] for ch in segment)
+                result_parts.append(decoded_bytes.decode(utf8 if not flag else gb, errors=errors))
+        else:
+            # use ac automaton to decode
+            print(f"[INFO] Decoding using AC Automaton. {ords[:10]}...")
+            intervals = self.mix_decoder.search(ords)
+            print(f"[DEBUG] Found {len(intervals)} intervals during AC decoding.")
+            for flag, l, r in intervals:
+                if flag == -1:
+                    segment = tokens_str[l:r]
+                    decoded_bytes = bytearray(byte_decoder[ch] for ch in segment)
+                    result_parts.append(decoded_bytes.decode(utf8, errors=errors))
+                else:
+                    result_parts.append(chr(flag))
+                print(f"[DEBUG] Decoding segment from {l} to {r} with flag {flag}. Segment: {tokens_str[l:r]} flag={flag}, decoded='{result_parts[-1]}'")
         return "".join(result_parts)
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -123,12 +149,12 @@ class MixTokenizerBase:
         self.__dict__.update(state)
     
     
-def get_mix_tokenizer(tokenizer_cls, dir_name="mix"):
+def get_mix_tokenizer(tokenizer_cls, dir_name="mix", use_ac=True):
     class_name = f"MixTokenizer"
     mix_class = type(
         class_name,
         (MixTokenizerBase, tokenizer_cls),
-        {"__module__": __name__, "dir_name": dir_name},
+        {"__module__": __name__, "dir_name": dir_name, "use_ac": use_ac},
     )
     globals()[class_name] = mix_class
     return mix_class
