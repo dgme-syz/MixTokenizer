@@ -2,6 +2,8 @@ import os
 import re
 import json
 
+from MixTokenizer.utils import create_config
+
 def main():
     import argparse
     parser = argparse.ArgumentParser("install scripts for vocab tokenizer")
@@ -54,6 +56,8 @@ def main():
         f.write(new_tokenizer_code)
     print(f"✨ Saved updated tokenizer.py to {updated_tokenizer_path}")
 
+    # config
+    create_config(output_dir)
 
 if __name__ == "__main__":
     main()

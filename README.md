@@ -14,7 +14,7 @@ pytest -s tests/
 
 ## Usage
 
-Check and edit parameters in config.yaml, then run:
+just run:
 
 ```bash
 # Train and generate injection files (default output_dir: mix/)
@@ -26,6 +26,49 @@ python3 scripts/install_mix.py /path/to/your/model/ --mix_dir mix/
 # Uninstall MixTokenizer and restore original files
 python3 scripts/uninstall_mix.py /path/to/your/model/ --mix_dir_name mix
 
+```
+## 🛠️ Configuration
+
+`train.py` includes an interactive configuration generator for MixTokenizer.  
+It guides you through creating a `mix_tokenizer_config.yaml` file that controls:
+
+- Encoding strategy  
+- Code-length rules  
+- AC-automaton optimizations for fast pattern matching  
+
+---
+
+### ⚙️ Available Options
+
+#### **`use_code`**
+- Encoding to use (e.g., `gbk`).
+- Leave empty to enable **random-code mode**.
+
+#### **When `use_code` *is provided***:
+- **`use_code_random`**  
+  Whether to append extra random bytes (default: `y`).
+
+- **`code_random_len`**  
+  Length of the appended random bytes (default: `2`).
+
+#### **When `use_code` *is empty*** (Random-code mode):
+- **`min_code_len`**  
+  Minimum generated code length (default: `4`).
+
+- **`max_code_len`**  
+  Maximum generated code length (default: `4`).
+
+#### **`use_ac`**
+- Enables AC automaton optimization for fast matching of fixed-length patterns.  
+- Default: off (`n`).
+
+### 💎 Example
+
+```yaml
+max_code_len: 4
+min_code_len: 4
+use_ac: false
+use_code: null
 ```
 
 ## Load
