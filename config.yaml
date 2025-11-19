@@ -34,7 +34,7 @@ mapping:
   - 0x3008
   - 0x3009
   seed: 42
-  mapping_file: MixTokenizer/lang_map/mapping.json # if not exist, will be trained and saved here
+  mapping_file: null # if not exist, will be trained and saved here
 
 ## tokenizer
 ## training_params: path
@@ -46,10 +46,10 @@ new_lang_tokenizer:
 model_name_or_path: /home/nfs06/shenyz/models/Qwen2.5-0.5B
 mix_trained:
   doc_path: null
-  counter_path: [MixTokenizer/en.bin, MixTokenizer/zh.bin]
+  counter_path: [data/en.bin, data/zh.bin]
   level: 2
   seed: 42
-  expand: 4801
-  expand_only: true
+  expand: 0
+  expand_only: false
 
 output_dir: mix/

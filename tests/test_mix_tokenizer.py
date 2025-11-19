@@ -90,7 +90,7 @@ def test_private_unicode_chars(tokenizers):
         [ch for ch in all_private_chars if ch not in vocab_set], k=5
     )
 
-    normal_chars = ["a", "1", "中", "🙂"]
+    normal_chars = ["a", "1", "dxkjahdka", "🙂"]
 
     test_chars = "".join(private_chars_in_vocab[:5] + private_chars_not_in_vocab + normal_chars)
 
@@ -98,11 +98,11 @@ def test_private_unicode_chars(tokenizers):
 
     assert all(isinstance(i, int) for i in encoded_ids), f"Found non-int token ids: {encoded_ids}"
 
-    decoded_text = tok1.decode(encoded_ids, skip_special_tokens=True)
+    decoded_text = tok1.decode(encoded_ids, skip_special_tokens=True, map_back=False)
 
     unk_token = tok1.new_lang_tokenizer.unk_token
     for ch in test_chars:
-        assert ch in decoded_text or unk_token in decoded_text, f"Character {ch} missing in decoded output"
+        assert ch in decoded_text or unk_token in decoded_text, f"Character {ch} missing in decoded output\nRaw: {test_chars}"
 
     print(decoded_text[:10])
     print("Private Unicode chars encode/decode test passed. All token ids are valid integers.")

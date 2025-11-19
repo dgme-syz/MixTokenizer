@@ -11,7 +11,7 @@ from transformers import AutoTokenizer
 
 from MixTokenizer.tokenizer_train import get_mix_tokenizer
 from MixTokenizer.utils import NewLangTokenizer
-from MixTokenizer.lang_map.mapping import PrivateUnicodeMapper
+from MixTokenizer.mapping import PrivateUnicodeMapper
 
 def parse_args(config_file: str) -> argparse.Namespace:
     """Load configuration from YAML and convert to argparse.Namespace"""

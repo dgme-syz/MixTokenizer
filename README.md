@@ -15,10 +15,10 @@ pytest -s tests/
 
 ```bash
 # map zh -> new 
-python MixTokenizer/lang_map/mapping.py --mapping MixTokenizer/lang_map/mapping.json --inputs data/text.jsonl --output_dir data/ --mode map
+python MixTokenizer/mapping.py --mapping mix/lang_map/mapping.json --inputs data/text.jsonl --output_dir data/ --mode map
 
 # umap new -> zh
-python MixTokenizer/lang_map/mapping.py --mapping MixTokenizer/lang_map/mapping.json --inputs data/map_text.jsonl --output_dir data/ --mode umap
+python MixTokenizer/mapping.py --mapping mix/lang_map/mapping.json --inputs data/map_text.jsonl --output_dir data/ --mode umap
 # inputs and outputs can be dir
 ```
 Eg：

@@ -10,8 +10,9 @@ from transformers import AutoTokenizer
 from scipy.stats import qmc
 from transformers.tokenization_utils import Trie
 
-from MixTokenizer.core.cpp_core import find_change_points, is_new_char_array, ComboTrie
-from MixTokenizer.lang_map.mapping import PrivateUnicodeMapper
+from MixTokenizer.core.utils import ChineseSplitter
+from MixTokenizer.core.decode import HybridDecoder, ACAutomaton
+from MixTokenizer.mapping import PrivateUnicodeMapper
 
 def sample_integer_points(L: int, K: int, N: int, seed: int = 42) -> np.ndarray:
     """
@@ -72,26 +73,9 @@ class NewLangTokenizer:
         x = self.tokenizer.token_to_id(token)
         return x 
     
-    def is_new_char(self, ch: str) -> bool:
-        # Only treat single-character entries in vocab as new characters
-        # For faster tokenize, just ensure in private area
-
-        status = (
-            ch in self.all_special_tokens or (
-                len(ch) == 1 and ( 
-                    0xE000 <= ord(ch) <= 0xF8FF
-                    or 0xF0000 <= ord(ch) <= 0xFFFFD
-                    or 0x100000 <= ord(ch) <= 0x10FFFD
-                )
-            ) 
-        )
-
-        return status
-    
-    def is_new_char_array(self, text: str) -> np.ndarray:
-        if text in self.all_special_tokens:
-            return np.ones(len(text), dtype=bool)
-        return is_new_char_array(text)
+    def _convert_one_id_to_token(self, token_id: int) -> str:
+        x = self.tokenizer.id_to_token(token_id)
+        return x
 
     def split_by_special_tokens(self, text: str) -> List[str]:
         return self.tokens_trie.split(text)
@@ -124,7 +108,6 @@ class MixTokenizerBase:
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
         instance = super().from_pretrained(pretrained_model_name_or_path, **kwargs)
-        instance.pretrained_model_name_or_path = pretrained_model_name_or_path
         # Load extra_config.json
         script_dir = os.path.join(pretrained_model_name_or_path, cls.dir_name)
         json_path = os.path.join(script_dir, "extra_config.json")
@@ -144,17 +127,30 @@ class MixTokenizerBase:
         # Load old2new mapping
         map_path = os.path.join(script_dir, "lang_map", "mapping.json")
         instance.MAPPER = PrivateUnicodeMapper.from_mapping_dict(map_path)
+        instance.splitter = ChineseSplitter(list(instance.MAPPER.mapping.values()))
 
         instance.new_lang_tokenizer = new_lang_tokenizer
         level = extra_config.get("level", None)
 
         if extra_config.get("mapping") and extra_config.get("used_ids"):
             print(f"Mapping file and used ids are loaded, level ignored: {level}")
-            instance.mapping = extra_config["mapping"]
-            instance.trie = ComboTrie()
-            for x in instance.mapping:
-                instance.trie.insert(x)
-            instance.level = len(instance.mapping[0])
+            instance.mapping_list = extra_config["mapping"]
+
+            equal_length = all(len(x) == len(instance.mapping_list[0]) for x in instance.mapping_list)
+            if equal_length:
+                print("[INFO] Using Hash Decoder for fixed-length patterns in MixTokenizer.")
+                instance.mix_decoder = HybridDecoder(len(instance.mapping_list[0]))
+            else:
+                print("[INFO] Using AC Automaton for variable-length patterns in MixTokenizer.")
+                instance.mix_decoder = ACAutomaton()
+            
+            # add pattern
+            for i, pattern in enumerate(instance.mapping_list):
+                instance.mix_decoder.add_pattern(pattern, i)
+            if not equal_length:
+                instance.mix_decoder.build()
+
+            instance.level = len(instance.mapping_list[0])
             instance.zero_ids = extra_config["used_ids"]
             # ensure zero_ids are not in special_ids
             if not hasattr(instance, "all_special_ids"):
@@ -167,19 +163,13 @@ class MixTokenizerBase:
             vocab_len = len(instance) + 10 # for safety
             instance.zero_mask = np.zeros(vocab_len, dtype=bool)
             instance.zero_mask[instance.zero_ids] = True
-            instance.reverse_mapping = {}
-            for i, point in enumerate(instance.mapping):
-                instance.reverse_mapping[tuple(point)] = i
-            # ensure mapping and reverse_mapping are consistent
-            for k, v in instance.reverse_mapping.items():
-                assert tuple(instance.mapping[v]) == k, "Mapping and reverse mapping are inconsistent."
         else:
             raise ValueError(
                 "Ensure mapping and used_ids exist in config, or frequency_id_files and level exist in config."
             )
         
         print(
-            f"[INFO] current length = {len(instance)}\n"
+            f"[INFO] current length = {instance.vocab_size}\n"
             f"[INFO] all_special_tokens = {instance.all_special_tokens}\n"
             f"[INFO] eos_token = {instance.eos_token}\n"
         )
@@ -187,16 +177,11 @@ class MixTokenizerBase:
     
     def __len__(self):
         return max(super().__len__(), (max(self.zero_ids) + 1) if hasattr(self, "zero_ids") else 0)
-
-    def _convert_ids_to_new_lang_id(self, token_ids: List[int] | np.ndarray) -> int:
-        return self.reverse_mapping[tuple(token_ids)]
-
-    def _convert_ids_to_new_lang_id_batch(self, batch_token_ids: List[List[int]] | np.ndarray) -> List[int]:
-        for tids in batch_token_ids:
-            if list(tids) not in self.mapping:
-                raise ValueError("acnachjakchas")
-        return [self.reverse_mapping[tuple(tids)] for tids in batch_token_ids]
-
+    
+    @property
+    def vocab_size(self):
+        return len(self) # support vllm
+    
     def tokenize(self, text: str, **kwargs) -> List[str]:
         """
         Two-stage tokenization:
@@ -205,19 +190,15 @@ class MixTokenizerBase:
         """
         # First chunk
         # print(f"tokenize text={text}")
+        # In this setting, src can be normal Chinese text.
+        text = self.MAPPER.map_string(text)
         tokens = []
         append = tokens.extend  
         for chunk_text in self.new_lang_tokenizer.split_by_special_tokens(text):
             if chunk_text in self.new_lang_tokenizer.all_special_tokens:
                 append(self.new_lang_tokenizer.tokenize(chunk_text))
             else:
-                is_new = self.new_lang_tokenizer.is_new_char_array(chunk_text)
-
-                # transfer [0,0,1,1,0] → [0,2,4,5]
-                # True: new_lang seg, False: base_lang seg
-                segments = find_change_points(is_new)
-
-                for flag, start, end in segments:
+                for flag, start, end in self.splitter.py_split_zh_nonzh(chunk_text):
                     seg = chunk_text[start:end]
                     if len(seg) == 0: 
                         continue
@@ -225,25 +206,21 @@ class MixTokenizerBase:
                         append(self.new_lang_tokenizer.tokenize(seg))
                     else:
                         append(super().tokenize(seg, **kwargs))
-        # print(f"tokenized tokens={tokens}")
         return tokens
 
     def _convert_one_token_to_id(self, token: str) -> Union[int, List[int]]:
         """
         Convert a token to one or more IDs depending on its type.
         """
-        if self.new_lang_tokenizer.is_new_char(token):
+        if self.splitter.py_split_zh_nonzh(token)[0][0]:
             token_id = self.new_lang_tokenizer._convert_one_token_to_id(token)
-            # print("***||")
-            # print(token_id, self.mapping[token_id])
-            return self.mapping[token_id]
+            return self.mapping_list[token_id]
         else:
             return self._convert_token_to_id_with_added_voc(token)
 
     def convert_tokens_to_ids(self, tokens: Union[str, List[str]]) -> Union[int, List[int]]:
         if tokens is None:
             return None
-        # print(f"tokens = {tokens}")
         if isinstance(tokens, str):
             return self._convert_one_token_to_id(tokens)
 
@@ -254,48 +231,22 @@ class MixTokenizerBase:
         return ids
 
     def _decode(self, token_ids: Union[int, List[int]], **kwargs) -> str:
-        """
-        High-performance decoding of token ID sequences.
-        Groups consecutive tokens by type (new_lang vs base_lang),
-        then decodes each block using the appropriate tokenizer.
-        """
-
         map_back = kwargs.get("map_back", True)
-
         if isinstance(token_ids, int):
             token_ids = [token_ids]
         if not token_ids:
             return ""
         
-        segments = self.trie.find_change_points_plus(token_ids)
-        token_ids = np.array(token_ids, dtype=np.int64)
-        # print("dxcadasdas")
         decoded_segments = []
         append = decoded_segments.append
-        decode_new = self.new_lang_tokenizer.decode
-        rev_map = self._convert_ids_to_new_lang_id_batch
-        lvl = self.level
-        # print(segments)
-        for flag, start, end in segments:
+        for flag, start, end in self.mix_decoder.search(token_ids):
             seg_ids = token_ids[start:end]
-            if len(seg_ids) == 0:
-                continue
-            if flag:
-                # print(seg_ids)
-                assert len(seg_ids) % lvl == 0, f"Invalid new language token length {len(seg_ids)} (level={lvl})"
-                # chunk level
-                grouped = rev_map(seg_ids.reshape(-1, lvl))
-                ans = decode_new(grouped)
-                if map_back:
-                    # print("mapppp--------------------------------")
-                    # print(ans)
-                    ans = self.MAPPER.unmap_string(ans)
-                    # print(ans)
-                append(ans)
+            if flag == -1:
+                append(super()._decode(seg_ids, **kwargs))
             else:
-                # print("dapppp--------------------------------")
-                # print(seg_ids)
-                append(super()._decode(seg_ids.tolist(), **kwargs))
+                ch = self.new_lang_tokenizer._convert_one_id_to_token(flag)
+                if map_back: ch = self.MAPPER.unmap_string(ch)
+                append(ch)
 
         return "".join(decoded_segments)
     
