@@ -12,7 +12,7 @@ import os
 import json
 import random
 import argparse
-from typing import List, Union, Tuple, Dict
+from typing import List, Union, Tuple, Dict, Optional
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 
@@ -152,6 +152,44 @@ class PrivateUnicodeMapper:
         with open(output_path, "w", encoding="utf-8") as f:
             for line in unmapped_lines:
                 f.write(line + "\n")
+    
+    def map_hf_dataset(
+        self,
+        dataset_name: str,
+        split: str = "train",
+        text_field: str | List[str] = "text",
+        output_file: Optional[str] = None,
+        push_to_hf: Optional[str] = None,  # HF repo id, e.g., "username/mapped-dataset"
+    ):
+        if isinstance(text_field, str):
+            text_field = [text_field]
+
+        from datasets import load_dataset
+        # 1. Load dataset
+        try:
+            ds = load_dataset(dataset_name, split=split)
+        except Exception as e:
+            raise RuntimeError(f"Failed to load dataset {dataset_name} split {split}: {e}")
+        ## filter
+        ds = ds.filter(lambda example: all(field in example and example[field] is not None for field in text_field))
+
+        # 2. Map
+        def map_text(example):
+            for field in text_field:
+                if field in example:
+                    example[field] = self.map_string(example[field])
+            return example
+        ds = ds.map(map_text)
+
+        # 3. Save or push
+        if output_file:
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            ds.to_parquet(output_file)
+
+        # 4. Optionally push to HF Hub
+        if push_to_hf:
+            # requires huggingface_hub login
+            ds.push_to_hub(push_to_hf)
 
 
 # ---------- Batch processing logic ----------
@@ -184,32 +222,53 @@ def process_files(mapper: PrivateUnicodeMapper, input_paths: List[str], output_d
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Batch map / unmap JSONL documents")
+    parser = argparse.ArgumentParser(description="Batch map / unmap JSONL documents or HF datasets")
     parser.add_argument("--mapping", required=True, help="Path to mapping.json file")
-    parser.add_argument("--inputs", nargs="+", required=True, help="Input file(s) or directory path(s)")
-    parser.add_argument("--output_dir", required=True, help="Output directory for results")
+    parser.add_argument(
+        "--inputs", nargs="+", required=True,
+        help="Input file(s), directory path(s), or HF dataset name(s) (e.g., 'username/dataset')"
+    )
+    parser.add_argument("--output_dir", required=True, help="Output directory for results / Parquet file")
     parser.add_argument("--mode", choices=["map", "umap"], required=True, help="Operation mode")
     parser.add_argument("--num_workers", type=int, default=4, help="Number of worker processes")
+    parser.add_argument("--hf_split", default="train", help="HuggingFace dataset split to process")
+    parser.add_argument("--hf_text_fields", nargs="+", default=["text"], help="HF dataset text field(s) to map")
+    parser.add_argument("--push_to_hf", default=None, help="HF Hub repo id to push mapped dataset")
     args = parser.parse_args()
 
     mapper = PrivateUnicodeMapper.from_mapping_dict(mapping_file=args.mapping)
 
-    input_files = []
     for item in args.inputs:
-        if os.path.isdir(item):
-            input_files.extend(
-                [os.path.join(item, f) for f in os.listdir(item) if f.endswith(".jsonl")]
+        is_hf_dataset = not os.path.exists(item)
+        if is_hf_dataset:
+            print(f"[HF] Processing dataset: {item}")
+            output_file = os.path.join(args.output_dir, f"{args.mode}_{item.replace('/', '_')}.parquet")
+            mapper.map_hf_dataset(
+                dataset_name=item,
+                split=args.hf_split,
+                text_field=args.hf_text_fields,
+                output_file=output_file if args.mode=="map" else None,
+                push_to_hf=args.push_to_hf if args.mode=="map" else None
             )
-        elif os.path.isfile(item):
-            input_files.append(item)
         else:
-            print(f"⚠️ Skipping invalid input: {item}")
+            input_files = []
+            if os.path.isdir(item):
+                input_files.extend(
+                    [os.path.join(item, f) for f in os.listdir(item) if f.endswith(".jsonl")]
+                )
+            elif os.path.isfile(item):
+                input_files.append(item)
+            else:
+                print(f"⚠️ Skipping invalid input: {item}")
+                continue
 
-    if not input_files:
-        print("❌ No input files found.")
-        return
+            if not input_files:
+                print(f"❌ No JSONL files found in {item}.")
+                continue
 
-    process_files(mapper, input_files, args.output_dir, args.mode, args.num_workers)
+            process_files(mapper, input_files, args.output_dir, args.mode, args.num_workers)
+
+    print("✅ All tasks completed successfully!")
 
 
 if __name__ == "__main__":

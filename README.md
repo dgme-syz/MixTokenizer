@@ -20,6 +20,16 @@ python MixTokenizer/mapping.py --mapping mix/lang_map/mapping.json --inputs data
 # umap new -> zh
 python MixTokenizer/mapping.py --mapping mix/lang_map/mapping.json --inputs data/map_text.jsonl --output_dir data/ --mode umap
 # inputs and outputs can be dir
+
+# map hf repo
+python MixTokenizer/lang_map/mapping.py \
+    --mapping MixTokenizer/lang_map/mapping.json \
+    --inputs meta-math/GSM8K_zh \
+    --hf_split train \
+    --hf_text_fields question_zh answer_zh \
+    --output_dir tmp \
+    --mode map 
+    # --push_to_hf username/mapped-dataset
 ```
 Eg：
 ```markdown

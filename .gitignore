@@ -28,7 +28,7 @@ temp/*
 MixTokenizer.egg-info/*
 .nfs*
 *.html
-temp.py
+tmp/*
 
 # Byte-compiled / Cython generated
 __pycache__/
