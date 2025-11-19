@@ -19,6 +19,7 @@ classifiers = [
 dependencies = [
     "transformers",
     "numpy",
+    "bitarray"
 ]
 
 [build-system]

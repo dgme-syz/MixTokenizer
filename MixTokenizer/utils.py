@@ -76,16 +76,21 @@ class MixTokenizerBase:
 
     dummy class, need to register by a parent tokenizer
     """
+    @property
+    def vocab_size(self):
+        return 2 * super().__len__()
+
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
         instance = super().from_pretrained(pretrained_model_name_or_path, **kwargs)
-        instance.vocab_len = super().__len__(instance)
         # instance.pat = re.compile(PRETOKENIZE_REGEX)
+        instance.vocab_len = instance.vocab_size // 2
         print(
-            f"[INFO] vocab length = {instance.vocab_len}\n"
+            f"[INFO] vocab length = {instance.vocab_size}\n"
             f"[INFO] current length = {len(instance)}\n"
             f"[INFO] all_special_tokens = {instance.all_special_tokens}\n"
             f"[INFO] eos_token = {instance.eos_token}\n"
+            f"[INFO] max_token_id, now = {instance.vocab_size - 1}\n"
         )
         return instance
 
