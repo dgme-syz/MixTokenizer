@@ -2,6 +2,23 @@
 
 Combine two tokenizers into one.
 
+## Support
+| Item | Content | Condition |
+|------|---------|-----------|
+| [lm_eval](https://github.com/EleutherAI/lm-evaluation-harness) | Must specify `trust_remote_code=True`. In *vocabulary expansion* mode, ensure that your model’s embedding layer is correctly aligned. | Non–*vocabulary expansion* mode: passed ✔️; *vocabulary expansion* mode: under testing🥲. |
+| [vllm](https://github.com/vllm-project/vllm) | Just ensure the tokenizer reports a correct `vocab_size` property. | passed✔️ |
+
+**example for lm_eval**
+
+```bash
+lm_eval --model vllm \
+    --model_args pretrained=/xx/models/Qwen2.5-0.5B,trust_remote_code=True \
+    --tasks ceval* \
+    --device "$device_string" \
+    --batch_size 2
+```
+
+
 ## Installation
 
 ```bash
