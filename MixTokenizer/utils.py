@@ -76,9 +76,6 @@ class MixTokenizerBase:
 
     dummy class, need to register by a parent tokenizer
     """
-    @property
-    def vocab_size(self):
-        return 2 * super().__len__()
 
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
@@ -97,6 +94,10 @@ class MixTokenizerBase:
     # dummy length
     def __len__(self):
         return 2 * super().__len__()
+    
+    @property
+    def vocab_size(self):
+        return len(self)
 
     def check_zh(self, token: str) -> bool:
         # print(f"token={token}")
