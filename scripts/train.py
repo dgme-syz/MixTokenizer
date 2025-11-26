@@ -2,6 +2,8 @@ import os
 import re
 import json
 import yaml
+import random
+import string
 import argparse
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -44,6 +46,8 @@ def main():
     print(args)
     output_dir = args.output_dir
     output_dir = output_dir.rstrip("/\\")  
+    # random string to avoid overwriting
+    output_dir += "_" + ''.join(random.choices(string.ascii_letters + string.digits, k=6))
     os.makedirs(output_dir, exist_ok=True)
 
     # 1. Mapping preparation
@@ -149,7 +153,7 @@ def main():
         f"from transformers import {tokenizer_cls_name}\n"
         f"tokenizer_cls = {tokenizer_cls_name}\n\n"
         f"# Register dynamic class globally\n"
-        f'globals()["MixTokenizer"] = get_mix_tokenizer(tokenizer_cls=tokenizer_cls)'
+        f'globals()["MixTokenizer"] = get_mix_tokenizer(tokenizer_cls=tokenizer_cls, dir_name=dir_name)'
     )
 
     new_tokenizer_code, n = re.subn(pattern, replacement, tokenizer_code)

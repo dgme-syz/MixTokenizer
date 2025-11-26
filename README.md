@@ -70,6 +70,9 @@ python3 scripts/train.py
 # Inject MixTokenizer into your model
 python3 scripts/install_mix.py /path/to/your/model/ --mix_dir mix/
 
+# Rename inject dir
+python3 scripts/rename.py /path/to/your/model/ --new new_inject_dir_name
+
 # Uninstall MixTokenizer and restore original files
 python3 scripts/uninstall_mix.py /path/to/your/model/ --mix_dir_name mix
 

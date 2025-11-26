@@ -18,11 +18,11 @@ from MixTokenizer import get_mix_tokenizer
 #
 # ✨ Note: Keep the 'extra' folder intact to enable all MixTokenizer features!
 
-dir_name = "mix"
+dir_name = "mix_Rw3Q5g"
 
 # Get parent tokenizer's type
 from transformers import Qwen2Tokenizer
 tokenizer_cls = Qwen2Tokenizer
 
 # Register dynamic class globally
-globals()["MixTokenizer"] = get_mix_tokenizer(tokenizer_cls=tokenizer_cls)
+globals()["MixTokenizer"] = get_mix_tokenizer(tokenizer_cls=tokenizer_cls, dir_name=dir_name)
