@@ -196,15 +196,18 @@ class MixTokenizerBase:
             ids.extend(mapped if isinstance(mapped, list) else [mapped])
         return ids
 
-    def _decode(self, token_ids: Union[int, List[int]], **kwargs) -> str:
-        """
-        High-performance decoding of token ID sequences.
-        Groups consecutive tokens by type (new_lang vs base_lang),
-        then decodes each block using the appropriate tokenizer.
-        """
-        arr = np.array(token_ids)
-        token_ids = np.where(arr >= self.vocab_len, arr - self.vocab_len, arr).tolist()
-        return super()._decode(token_ids, **kwargs)
+    def convert_ids_to_tokens(
+        self, ids: Union[int, list[int]], skip_special_tokens: bool = False
+    ) -> Union[str, list[str]]:
+        if isinstance(ids, int):
+            if ids >= self.vocab_len:
+                token_id = ids - self.vocab_len
+            else:
+                token_id = ids
+            return super().convert_ids_to_tokens(token_id, skip_special_tokens=skip_special_tokens)
+        ids = np.where(np.array(ids) >= self.vocab_len, np.array(ids) - self.vocab_len, np.array(ids)).tolist()
+        return super().convert_ids_to_tokens(ids, skip_special_tokens=skip_special_tokens)
+
     
 def get_mix_tokenizer(tokenizer_cls, dir_name="mix"):
     class_name = f"MixTokenizer"
