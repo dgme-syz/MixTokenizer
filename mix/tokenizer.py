@@ -18,7 +18,7 @@ from MixTokenizer import get_mix_tokenizer
 #
 # ✨ Note: Keep the 'extra' folder intact to enable all MixTokenizer features!
 
-dir_name = "mix_Rw3Q5g"
+dir_name = "mix"
 
 # Get parent tokenizer's type
 from transformers import Qwen2Tokenizer
