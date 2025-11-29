@@ -6,7 +6,7 @@ import numpy as np
 from tokenizers import Tokenizer
 from tokenizers.models import WordLevel
 from tokenizers.pre_tokenizers import Split
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, Qwen2Tokenizer
 from scipy.stats import qmc
 from transformers.tokenization_utils import Trie
 
@@ -128,6 +128,7 @@ class MixTokenizerBase:
         map_path = os.path.join(script_dir, "lang_map", "mapping.json")
         instance.MAPPER = PrivateUnicodeMapper.from_mapping_dict(map_path)
         instance.splitter = ChineseSplitter(list(instance.MAPPER.mapping.values()))
+        instance.map_back=True
 
         instance.new_lang_tokenizer = new_lang_tokenizer
         level = extra_config.get("level", None)
@@ -182,6 +183,7 @@ class MixTokenizerBase:
     def vocab_size(self):
         return len(self) # support vllm
     
+    
     def tokenize(self, text: str, **kwargs) -> List[str]:
         """
         Two-stage tokenization:
@@ -230,25 +232,49 @@ class MixTokenizerBase:
             ids.extend(mapped if isinstance(mapped, list) else [mapped])
         return ids
 
-    def _decode(self, token_ids: Union[int, List[int]], **kwargs) -> str:
-        map_back = kwargs.get("map_back", True)
-        if isinstance(token_ids, int):
-            token_ids = [token_ids]
-        if not token_ids:
+    def convert_ids_to_tokens(
+        self, ids: Union[int, list[int]], skip_special_tokens: bool = False
+    ) -> Union[str, list[str]]:
+        if isinstance(ids, int):
+            ids = [ids]
+        if not ids:
             return ""
         
         decoded_segments = []
         append = decoded_segments.append
-        for flag, start, end in self.mix_decoder.search(token_ids):
-            seg_ids = token_ids[start:end]
+        extend = decoded_segments.extend
+        for flag, start, end in self.mix_decoder.search(ids):
+            seg_ids = ids[start:end]
             if flag == -1:
-                append(super()._decode(seg_ids, **kwargs))
+                extend(super().convert_ids_to_tokens(seg_ids, skip_special_tokens=skip_special_tokens))
             else:
                 ch = self.new_lang_tokenizer._convert_one_id_to_token(flag)
-                if map_back: ch = self.MAPPER.unmap_string(ch)
                 append(ch)
 
-        return "".join(decoded_segments)
+        return decoded_segments
+    
+    def convert_tokens_to_string(self, tokens: List[str]) -> str:
+        """
+        Convert a list of tokens back to a string.
+        """
+        map_back = getattr(self, "map_back", True)
+        text = ""
+        raw_tokens = []
+        for token in tokens:
+            if self.splitter.py_split_zh_nonzh(token)[0][0]:
+                if raw_tokens:
+                    segment = super().convert_tokens_to_string(raw_tokens)
+                    text += segment
+                    raw_tokens = []
+                if map_back:
+                    token = self.MAPPER.unmap_string(token)
+                text += token
+            else:
+                raw_tokens.append(token)
+        if raw_tokens:
+            segment = super().convert_tokens_to_string(raw_tokens)
+            text += segment
+        return text
     
 def get_mix_tokenizer(tokenizer_cls, dir_name="mix"):
     class_name = f"MixTokenizer"

@@ -46,7 +46,8 @@ def test_tokenizer_speed(tokenizers, sample_text):
 def test_decoder_consistency(tokenizers, sample_text):
     tok1, tok2 = tokenizers
     tokens1 = tok1([sample_text], return_tensors="pt")["input_ids"][0].tolist()
-    decoded = tok1.decode(tokens1, map_back=False)
+    tok1.map_back=False
+    decoded = tok1.decode(tokens1)
     assert decoded == sample_text
     print("Decoder consistency test passed.")
 
@@ -80,6 +81,7 @@ def test_dataset_map(tokenizers, sample_text):
 
 def test_private_unicode_chars(tokenizers):
     tok1, _ = tokenizers
+    tok1.map_back = False
     vocab = tok1.new_lang_tokenizer.get_vocab  # type: dict[str, int]
     vocab_set = set(vocab.keys())
 
@@ -98,7 +100,7 @@ def test_private_unicode_chars(tokenizers):
 
     assert all(isinstance(i, int) for i in encoded_ids), f"Found non-int token ids: {encoded_ids}"
 
-    decoded_text = tok1.decode(encoded_ids, skip_special_tokens=True, map_back=False)
+    decoded_text = tok1.decode(encoded_ids, skip_special_tokens=True)
 
     unk_token = tok1.new_lang_tokenizer.unk_token
     for ch in test_chars:

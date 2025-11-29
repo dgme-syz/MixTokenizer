@@ -31,7 +31,7 @@ setup(
     packages=find_packages(include=["MixTokenizer", "MixTokenizer.*"]),
     zip_safe=False,
     install_requires=[
-        "transformers",
+        "transformers==4.57.1",
         "datasets",
         "numpy",
         "bitarray",
