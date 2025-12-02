@@ -1,18 +1,35 @@
 import json
 import os
-from typing import List, Union, Dict
+from typing import List, Union, Dict, Optional
+from pathlib import Path
 
 import numpy as np
 from tokenizers import Tokenizer
 from tokenizers.models import WordLevel
 from tokenizers.pre_tokenizers import Split
-from transformers import AutoTokenizer, Qwen2Tokenizer
+from transformers import AutoTokenizer
 from scipy.stats import qmc
 from transformers.tokenization_utils import Trie
 
 from MixTokenizer.core.utils import ChineseSplitter
 from MixTokenizer.core.decode import HybridDecoder, ACAutomaton
 from MixTokenizer.mapping import PrivateUnicodeMapper
+
+
+def load_from_folder(path: str):
+    path = Path(path)
+    files = {}
+    for file_path in path.iterdir():
+        if file_path.is_file():
+            files[file_path.name] = file_path.read_bytes()
+    return files
+
+def save_to_folder(path: str, files: Dict[str, bytes]):
+    path = Path(path)
+    path.mkdir(parents=True, exist_ok=True)
+    for file_name, content in files.items():
+        file_path = path / file_name
+        file_path.write_bytes(content)
 
 def sample_integer_points(L: int, K: int, N: int, seed: int = 42) -> np.ndarray:
     """
@@ -110,6 +127,7 @@ class MixTokenizerBase:
         instance = super().from_pretrained(pretrained_model_name_or_path, **kwargs)
         # Load extra_config.json
         script_dir = os.path.join(pretrained_model_name_or_path, cls.dir_name)
+        instance.save_cache = load_from_folder(script_dir)
         json_path = os.path.join(script_dir, "extra_config.json")
         with open(json_path, "r", encoding="utf-8") as f:
             extra_config = json.load(f)
@@ -275,6 +293,27 @@ class MixTokenizerBase:
             segment = super().convert_tokens_to_string(raw_tokens)
             text += segment
         return text
+    
+    def save_pretrained(
+        self,
+        save_directory: Union[str, os.PathLike],
+        legacy_format: Optional[bool] = None,
+        filename_prefix: Optional[str] = None,
+        push_to_hub: bool = False,
+        **kwargs,
+    ) -> tuple[str, ...]:
+        save_files = super().save_pretrained(
+            save_directory,
+            legacy_format=legacy_format,
+            filename_prefix=filename_prefix,
+            push_to_hub=push_to_hub,
+            **kwargs,
+        )
+        # save mix inject dir
+        mix_dir = os.path.join(save_directory, self.dir_name)
+        save_to_folder(mix_dir, self.save_cache)
+        return save_files
+
     
 def get_mix_tokenizer(tokenizer_cls, dir_name="mix"):
     class_name = f"MixTokenizer"
