@@ -1,8 +1,13 @@
 import regex as re
-from typing import List, Union
+import os
+import json
+from typing import List, Union, Optional, Dict
+from pathlib import Path
 
 import numpy as np
 from bitarray import bitarray
+
+from MixTokenizer.core.str import zh_encode
 
 ZH_RANGE = (0x4E00, 0x9FFF)
 
@@ -20,8 +25,24 @@ def is_zh_char(c):
         return True
     return c in EXTRA_ZH_CHARS
 
+def load_from_folder(path: Union[str, Path]) -> Dict[Path, bytes]:
+    path = Path(path)
+    files = {}
+    for file_path in path.rglob("*"):  
+        if file_path.is_file():
+            files[file_path.relative_to(path)] = file_path.read_bytes()
+    return files
+
+def save_to_folder(path: Union[str, Path], files: Dict[Path, bytes]):
+    path = Path(path)
+    path.mkdir(parents=True, exist_ok=True)
+    for rel_path, content in files.items():
+        file_path = path / rel_path
+        file_path.parent.mkdir(parents=True, exist_ok=True)  
+        file_path.write_bytes(content)
+
+
 # PRETOKENIZE_REGEX = r"""(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"""
-from MixTokenizer.core.str import zh_encode
 class Mystring:
     __slots__ = ("content", "flag")
 
@@ -81,6 +102,8 @@ class MixTokenizerBase:
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
         instance = super().from_pretrained(pretrained_model_name_or_path, **kwargs)
         # instance.pat = re.compile(PRETOKENIZE_REGEX)
+        script_dir = os.path.join(pretrained_model_name_or_path, cls.dir_name)
+        instance.save_cache = load_from_folder(script_dir)
         instance.vocab_len = instance.vocab_size // 2
         print(
             f"[INFO] vocab length = {instance.vocab_size}\n"
@@ -207,6 +230,38 @@ class MixTokenizerBase:
             return super().convert_ids_to_tokens(token_id, skip_special_tokens=skip_special_tokens)
         ids = np.where(np.array(ids) >= self.vocab_len, np.array(ids) - self.vocab_len, np.array(ids)).tolist()
         return super().convert_ids_to_tokens(ids, skip_special_tokens=skip_special_tokens)
+
+    def save_pretrained(
+        self,
+        save_directory: Union[str, os.PathLike],
+        legacy_format: Optional[bool] = None,
+        filename_prefix: Optional[str] = None,
+        push_to_hub: bool = False,
+        **kwargs,
+    ) -> tuple[str, ...]:
+        save_files = super().save_pretrained(
+            save_directory,
+            legacy_format=legacy_format,
+            filename_prefix=filename_prefix,
+            push_to_hub=push_to_hub,
+            **kwargs,
+        )
+        # save mix inject dir
+        mix_dir = os.path.join(save_directory, self.dir_name)
+        save_to_folder(mix_dir, self.save_cache)
+        # patch, update tokenizer_config.json 
+        tokenizer_config_path = Path(save_directory) / "tokenizer_config.json"
+
+        tokenizer_config = json.loads(tokenizer_config_path.read_text(encoding="utf-8"))
+        tokenizer_config.setdefault("auto_map", {})["AutoTokenizer"] = [
+            f"{self.dir_name}/tokenizer.MixTokenizer",
+            None
+        ]
+        tokenizer_config_path.write_text(
+            json.dumps(tokenizer_config, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+        return save_files
 
     
 def get_mix_tokenizer(tokenizer_cls, dir_name="mix"):
