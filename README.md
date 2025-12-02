@@ -45,7 +45,7 @@ It guides you through creating a `mix_tokenizer_config.yaml` file that controls:
 
 #### **`use_code`**
 - Encoding to use (e.g., `gbk`).
-- Leave empty to enable **random-code mode**.
+- Input `random` to enable **random-code mode**.
 
 #### **When `use_code` *is provided***:
 - **`use_code_random`**  

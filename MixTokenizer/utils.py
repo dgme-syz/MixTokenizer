@@ -1,8 +1,11 @@
 import regex as re
 import random
-from typing import List, Optional, Callable
+from typing import List, Optional, Callable, Union, Dict
 from pathlib import Path
 import yaml
+import os
+import json
+
 from tqdm import tqdm
 
 from MixTokenizer.core.utils import ChineseSplitter
@@ -18,6 +21,22 @@ EXTRA_ZH_CHARS = {
     "·","～","︰","︱",
 }
 
+
+def load_from_folder(path: Union[str, Path]) -> Dict[Path, bytes]:
+    path = Path(path)
+    files = {}
+    for file_path in path.rglob("*"):  
+        if file_path.is_file():
+            files[file_path.relative_to(path)] = file_path.read_bytes()
+    return files
+
+def save_to_folder(path: Union[str, Path], files: Dict[Path, bytes]):
+    path = Path(path)
+    path.mkdir(parents=True, exist_ok=True)
+    for rel_path, content in files.items():
+        file_path = path / rel_path
+        file_path.parent.mkdir(parents=True, exist_ok=True)  
+        file_path.write_bytes(content)
 
 def generate_non_substring_sequences_double_hash(
     alphabet: str,
@@ -100,10 +119,12 @@ def create_config(path: str) -> None:
 
     config = {}
 
-    use_code = ask("Encoding to use (e.g. gbk; press Enter for random):", default=None)
+    use_code = ask("Encoding to use (e.g. gbk; Or 'random' for random encoding):", default=None)
     config["use_code"] = use_code
 
-    if use_code:
+    assert use_code, "use_code cannot be empty; for random encoding, just press Enter."
+
+    if use_code and use_code != "random":
         config["use_code_random"] = (ask("Use random extra bytes? (y/n, default y):", default="y").lower() != "n")
 
         if config["use_code_random"]:
@@ -147,6 +168,7 @@ class MixTokenizerBase:
 
         # 0. get config and prepare
         script_dir = Path(pretrained_model_name_or_path) / instance.dir_name
+
         config_path = script_dir / "mix_tokenizer_config.yaml"
         params = {}
         if not config_path.exists():
@@ -159,7 +181,7 @@ class MixTokenizerBase:
         for ch in tqdm(ZH_CHARS | EXTRA_ZH_CHARS, desc="Collecting Chinese characters"):
             if isinstance(ch, int):
                 ch = chr(ch)
-            if params.get("use_code") is not None:
+            if params.get("use_code", "random") != "random":
                 try:
                     ch.encode(params.get("use_code"))
                 except Exception:
@@ -176,7 +198,7 @@ class MixTokenizerBase:
         instance.use_map = {}
 
         # 2. generate mapping patterns
-        if params.get("use_code") is None:
+        if params.get("use_code", "random") == "random":
             # random mapping
             print("[INFO] Generating random code mappings for Chinese characters.")
             alphabet = "".join(instance.byte_encoder.values())
@@ -218,7 +240,7 @@ class MixTokenizerBase:
                 print(f"[INFO] Saved generated code mappings to {mapped_file}.")
 
         else:
-            assert isinstance(params.get("use_code"), str)
+            assert isinstance(params.get("use_code", None), str)
             print(f"[INFO] Using predefined code file: {params.get('use_code')}")
             temp_ch = []
             temp_rd: List[List[int]] = []
@@ -275,6 +297,7 @@ class MixTokenizerBase:
             f"[INFO] all_special_tokens = {instance.all_special_tokens}\n"
             f"[INFO] eos_token = {instance.eos_token}\n"
         )
+        instance.save_cache = load_from_folder(script_dir)
         return instance
 
     def _tokenize(self, text: str) -> List[str]:
@@ -315,6 +338,37 @@ class MixTokenizerBase:
                 result_parts.append(chr(flag))
         return "".join(result_parts)
 
+    def save_pretrained(
+        self,
+        save_directory: Union[str, os.PathLike],
+        legacy_format: Optional[bool] = None,
+        filename_prefix: Optional[str] = None,
+        push_to_hub: bool = False,
+        **kwargs,
+    ) -> tuple[str, ...]:
+        save_files = super().save_pretrained(
+            save_directory,
+            legacy_format=legacy_format,
+            filename_prefix=filename_prefix,
+            push_to_hub=push_to_hub,
+            **kwargs,
+        )
+        # save mix inject dir
+        mix_dir = os.path.join(save_directory, self.dir_name)
+        save_to_folder(mix_dir, self.save_cache)
+        # patch, update tokenizer_config.json 
+        tokenizer_config_path = Path(save_directory) / "tokenizer_config.json"
+
+        tokenizer_config = json.loads(tokenizer_config_path.read_text(encoding="utf-8"))
+        tokenizer_config.setdefault("auto_map", {})["AutoTokenizer"] = [
+            f"{self.dir_name}/tokenizer.MixTokenizer",
+            None
+        ]
+        tokenizer_config_path.write_text(
+            json.dumps(tokenizer_config, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+        return save_files
 
 def get_mix_tokenizer(tokenizer_cls, dir_name: str = "mix"):
     class_name = "MixTokenizer"

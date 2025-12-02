@@ -1,6 +1,7 @@
 import time
 import pytest
 import platform
+from pathlib import Path
 
 from transformers import AutoTokenizer
 from datasets import Dataset
@@ -47,7 +48,7 @@ def test_decoder_consistency(tokenizers, sample_text):
     tokens1 = tok1([sample_text], return_tensors="pt")["input_ids"][0].tolist()
     
     start = time.perf_counter()
-    decoded = tok1.decode(tokens1, map_back=False)
+    decoded = tok1.decode(tokens1)
     end = time.perf_counter()
     decode_time = end - start
     print(f"Tokenizer1 decode {len(tokens1)} tokens in {decode_time:.4f}s "
@@ -71,6 +72,29 @@ def test_pickle_serialization(tokenizers):
         loaded_tokens = loaded_tok(["test"], return_tensors="pt")["input_ids"][0].tolist()
         assert tokens == loaded_tokens
     print("Pickle serialization test passed.")
+
+def test_tokenizer_save_pretrained(tokenizers):
+    tok1, _ = tokenizers
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        tok1.save_pretrained(tmp_path)
+
+        expected_files = ["tokenizer_config.json"]
+        for fname in expected_files:
+            assert (tmp_path / fname).exists(), f"{fname} not found after save_pretrained"
+
+        loaded_tok = AutoTokenizer.from_pretrained(tmp_path, trust_remote_code=True)
+        sample_text = "者权益怎么分配 When a company goes through liquidation（清算）"
+        original_ids = tok1(sample_text, return_tensors="pt")["input_ids"][0].tolist()
+        loaded_ids = loaded_tok(sample_text, return_tensors="pt")["input_ids"][0].tolist()
+        assert original_ids == loaded_ids, "Token IDs mismatch after save/load"
+
+        decoded_text = loaded_tok.decode(loaded_ids, skip_special_tokens=True)
+        assert decoded_text == sample_text, "Decoded text mismatch after save/load"
+
+    print("Tokenizer save_pretrained test passed.")
+
 
 
 if __name__ == "__main__":
