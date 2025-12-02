@@ -2,6 +2,8 @@ import os
 import time
 import pytest
 import random
+from pathlib import Path
+from collections import Counter
 
 from transformers import AutoTokenizer
 from datasets import Dataset
@@ -108,3 +110,26 @@ def test_private_unicode_chars(tokenizers):
 
     print(decoded_text[:10])
     print("Private Unicode chars encode/decode test passed. All token ids are valid integers.")
+
+def test_tokenizer_save_pretrained(tokenizers):
+    tok1, _ = tokenizers
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        tok1.save_pretrained(tmp_path)
+
+        expected_files = ["tokenizer_config.json"]
+        for fname in expected_files:
+            assert (tmp_path / fname).exists(), f"{fname} not found after save_pretrained"
+
+        loaded_tok = tok1.from_pretrained(tmp_path, trust_remote_code=True)
+        loaded_tok.map_back = False
+        sample_text = "􅊫􀞡󳉅󻶉􈽃􎾻󾓚􈯹"
+        original_ids = tok1(sample_text, return_tensors="pt")["input_ids"][0].tolist()
+        loaded_ids = loaded_tok(sample_text, return_tensors="pt")["input_ids"][0].tolist()
+        assert original_ids == loaded_ids, "Token IDs mismatch after save/load"
+
+        decoded_text = loaded_tok.decode(loaded_ids, skip_special_tokens=True)
+        assert decoded_text == sample_text, "Decoded text mismatch after save/load"
+
+    print("Tokenizer save_pretrained test passed.")

@@ -16,19 +16,20 @@ from MixTokenizer.core.decode import HybridDecoder, ACAutomaton
 from MixTokenizer.mapping import PrivateUnicodeMapper
 
 
-def load_from_folder(path: str):
+def load_from_folder(path: Union[str, Path]) -> Dict[Path, bytes]:
     path = Path(path)
     files = {}
-    for file_path in path.iterdir():
+    for file_path in path.rglob("*"):  
         if file_path.is_file():
-            files[file_path.name] = file_path.read_bytes()
+            files[file_path.relative_to(path)] = file_path.read_bytes()
     return files
 
-def save_to_folder(path: str, files: Dict[str, bytes]):
+def save_to_folder(path: Union[str, Path], files: Dict[Path, bytes]):
     path = Path(path)
     path.mkdir(parents=True, exist_ok=True)
-    for file_name, content in files.items():
-        file_path = path / file_name
+    for rel_path, content in files.items():
+        file_path = path / rel_path
+        file_path.parent.mkdir(parents=True, exist_ok=True)  
         file_path.write_bytes(content)
 
 def sample_integer_points(L: int, K: int, N: int, seed: int = 42) -> np.ndarray:
@@ -312,6 +313,18 @@ class MixTokenizerBase:
         # save mix inject dir
         mix_dir = os.path.join(save_directory, self.dir_name)
         save_to_folder(mix_dir, self.save_cache)
+        # patch, update tokenizer_config.json 
+        tokenizer_config_path = Path(save_directory) / "tokenizer_config.json"
+
+        tokenizer_config = json.loads(tokenizer_config_path.read_text(encoding="utf-8"))
+        tokenizer_config.setdefault("auto_map", {})["AutoTokenizer"] = [
+            f"{self.dir_name}/tokenizer.MixTokenizer",
+            None
+        ]
+        tokenizer_config_path.write_text(
+            json.dumps(tokenizer_config, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
         return save_files
 
     
